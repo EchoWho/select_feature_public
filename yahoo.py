@@ -12,10 +12,10 @@ if __name__ == "__main__":
   params['do_FR'] = False
   fn_trains = 'toy_train.txt'
   print 'pretrain'
-#  yahoo_dataset.pretrain(fn_trains)
+  yahoo_dataset.pretrain(fn_trains)
 
   print 'training'
-#  yahoo_dataset.train(fn_trains, params)
+  yahoo_dataset.train(fn_trains, params)
 
   print 'testing on toy '
   yahoo_dataset.compute_budget_vs_loss_one_file('toy.svmlight', fn_trains, params)

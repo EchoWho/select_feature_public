@@ -63,6 +63,7 @@ class Dataset(object):
     return X, Y
     
   def train(self, fn_trains, params):
+    do_logistic = False
     d = np.load(self.filename_preprocess_info(fn_trains))
     b = d['b']
     C_no_regul = d['C_no_regul']
