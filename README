@@ -1,0 +1,61 @@
+This is a package that uses Orthogonal Matching Pursuit/Forward Regression (OMP/FR) to 
+order your features for Linear predictor (logistic regressor). 
+
+
+Use one of "yahoo.py", "grain.py", and "crowd_activity.py" as an example.
+
+The general pipelien is the following:
+
+1. Initialize the dataset using: 
+      
+      D = dataset.Dataset(<data_root_dir>, <result_root_dir>, <group_info_file>)
+  
+   where <data_root_dir> contains the input files that contain features and labels, 
+   <result_root_dir> will contain data normalization, model, and prediction results, and 
+   <group_info_file> should be a .npz file in <data_root_dir> that contains two variables:
+   "groups", "costs". "groups" is a 1-D np.array of length <nbr_feat_dimensions> and 
+   assigns each feature dimention to a group index in {0,1,2..., nbr_grps-1}; "costs" is 
+   a 1-D np.array of length <nbr_groups> that specify a cost for each group. 
+
+2. Initialize the parameters, using a python dict "params" as in yahoo.
+   params['l2_lam'] : np.float
+      specifies the regularization constant. Note The provided code does not handle 
+      cross-validation l2-lam, so it is up to the user to choose their l2_lam. 
+
+   params['do_FR'] : bool
+      Whether the algorithm will report results of "Forward Regression", which is expensive
+      but in general better than OMP. Disabling FR will speed up the training, especially when
+      you have many feature groups.
+
+   params['logistic'] : bool
+      Whether to use logistic regression in place of linear regression/prediction. 
+      Useful for binary classification. (Use "crowd_activity.py" as an example if you use this)
+
+3. Compute the normalization information:
+
+      D.pretrain(<fn_trains>)
+
+   where <fn_trains> is a txt file that specify the files used for training: <fn_trains> locates in
+   <data_root_dir>; each line of <fn_trains> specifies a file name <file> in <data_root_dir>, i.e.,
+   <data_root_dir>/<file> is a file used in training. 
+
+4. Train models:
+    
+      D.train(<fn_trains>, params)
+
+   where the same <fn_trains> must be used from pretrain. (Note if you want to do cross-validation,
+   you only need to pretrain once, and use different "params").
+
+5. Test:
+      
+      D.compute_budget_vs_loss_one_file(<fn_test>, <fn_trains>, params)
+
+   Or
+      
+      D.compute_budget_vs_loss_multi_files(<fn_tests>, <fn_trains>, params)
+
+   where <data_root_dir>/<fn_test> is a data file for single file testing, and 
+   <data_root_dir>/<fn_tests> is a txt file that specify files used for testing in the 
+   same format as <fn_trains>. 
+
+
