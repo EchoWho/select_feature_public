@@ -311,7 +311,7 @@ class Dataset(object):
 
   def filename_preprocess_info(self, fn_trains):
     fn_trains = os.path.splitext(fn_trains)[0]
-    return '%s/%s.pretrain.npz' % (self.data_dir, fn_trains)
+    return '%s/%s.pretrain.npz' % (self.result_dir, fn_trains)
 
   def filename_budget_vs_loss(self, fn_test, fn_trains, params):
     fn_trains = os.path.splitext(fn_trains)[0]
