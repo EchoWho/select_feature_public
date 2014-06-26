@@ -289,6 +289,10 @@ def gradient_bC(w, b, C):
 def logistic_predict(X, w):
   return 1.0 / (1.0 + np.exp(-np.dot(X, w[1:]) - w[0]))
 
+def logistic_link_gradient(X, w):
+  exp_wx = np.exp(-np.dot(X,w[1:]) - w[0])
+  return exp_wx / (1.0 + exp_wx) ** 2
+
 class OptProblem(object):
     def __init__(self, X, Y, opt_func, score_func, gradient_func, args={}):
         if len(Y.shape) != 1:
@@ -342,7 +346,8 @@ class OptProblem(object):
           Y_hat = exp_dot_Xw / (1.0 + exp_dot_Xw)
 
           # check objective
-          objective = (np.sum(np.log(1.0 + exp_dot_Xw)) - np.dot(self.Y, dot_Xw)) / self.Y.shape[0] + self.l2_lam / 2.0 * np.dot(w[1:], w[1:])
+          objective = (np.sum(np.log(1.0 + exp_dot_Xw)) - np.dot(self.Y, dot_Xw)) / self.Y.shape[0] + 
+            self.l2_lam / 2.0 * np.dot(w[1:], w[1:])
           accu = np.sum((Y_hat > 0.5) == self.Y) / np.float(self.Y.shape[0])
           #print 'iter %d: accu: %f ; objective: %f' % (nbr_iter, accu, objective)
           if is_first:
@@ -425,7 +430,8 @@ class OptProblem(object):
         selected_feats = np.hstack(selected_feats)
 
         if logistic:
-          res = (self.Y - logistic_predict(self.X[:, selected_feats], w)) / self.Y.shape[0]
+          selected_X = self.X[:, selected_feats]
+          res = (self.Y - logistic_predict(selected_X, w)) * logistic_link_gradient(selected_X, w) / self.Y.shape[0]
         else:
           res = (self.Y - self.X[:, selected_feats].dot(w)) / self.Y.shape[0]
 
@@ -812,12 +818,6 @@ def all_results_groups_p(problem, K=None, costs=None, groups=None, optimal=None,
       names.append('FR')
       print ('Forward Reg. total time %f' % (time.time() - t0))
 
-      if not release:
-        t0 = time.time()
-        results.append(alg_forward_groups(problem, K, costs, groups, method='single'))
-        names.append('FR SINGLE')
-        print ('Forward Reg. on features total time %f' % (time.time() - t0))
-
     if not do_logistic:
       t0 = time.time()
       results.append(alg_omp_groups(problem, K, costs, groups, method='group'))
@@ -828,24 +828,6 @@ def all_results_groups_p(problem, K=None, costs=None, groups=None, optimal=None,
       results.append(alg_omp_groups(problem, K, costs, groups, method='logistic'))
       names.append('OMP')
       print ('OMP total time %f' % (time.time() - t0))
-
-    if not release:
-      t0 = time.time()
-      results.append(alg_omp_groups(problem, K, costs, groups, method='single'))
-      names.append('OMP SINGLE')
-      print ('OMP total time %f' % (time.time() - t0))
-
-      t0 = time.time()
-      results.append(alg_omp_groups(problem, K, costs, groups, method='noinv'))
-      names.append('OMP NOINV')
-      print ('OMP total time %f' % (time.time() - t0))
-
-    if type(optimal) is np.ndarray:
-        results.append(best_budgets(recompute_costs(optimal, costs)))
-        names.append('OPT')
-    elif optimal:
-        results.append(best_budgets(alg_optimal_groups(problem, K, costs, groups)))
-        names.append('OPT')
 
     return dict(zip(names, results))
 
@@ -880,6 +862,34 @@ def all_results_bC(b, C_no_regul, l2_lam, X=None, Y=None, K=None, costs=None, gr
         return all_results_p(problem, K, costs, optimal)
     else:
         return all_results_groups_p(problem, K, costs, groups, optimal, release, do_FR, do_logistic)
+
+#def all_results_groups_glm(X, Y, l2_lam, K=None, costs=None, groups=None, optimal=None, do_FR=True, do_logistic=False):
+def all_results_groups_glm(X, Y, l2_lam, costs, groups, model='linear', K=None, methods=None):
+    if methods == None:
+      methods = [ 'FR', 'OMP' ]
+    
+    if model == 'linear':
+      problem = OptProblem(X, Y, opt_raw_no_cplex, rsquared_combined_bC, gradient_bC)
+      problem.b = np.dot(X, Y) / np.float64(X.shape[0])
+      problem.C_no_regul = np.dot(X, X) / np.float64(X.shape[0])
+      problem.C = problem.C_no_regul + l2_lam * np.eye(C_no_regul.shape[0])
+      problem.l2_lam = l2_lam
+
+    elif model == 'logistic':
+      
+      problem = OptProblem(X, Y, opt_logistic
+    model = '
+
+    problem = OptProblem(X, Y, opt_raw_no_cplex, rsquared_combined_bC, gradient_bC, args=opt_args)
+    problem.b = b
+    problem.C_no_regul = C_no_regul
+    problem.C = C_no_regul + l2_lam * np.eye(C_no_regul.shape[0])
+    problem.l2_lam = l2_lam
+
+    if groups is None:
+      groups = np.arange(C_no_regul
+    return all_results_groups_p(problem, K, costs, groups, optimal, release, do_FR, do_logistic)
+
 
 def plot(results, names, **plot_args):
     colors = ['r', 'g', 'b', 'k']
@@ -1135,6 +1145,9 @@ def alg_omp_groups(problem, K=None, costs=None, groups=None, method='group'):
         elif method == 'logistic':
           # Logistic regression
           g = problem.omp_select_groups(selected_groups[:k], mask, last_w, costs, groups, logistic=True)
+        elif method == 'glm':
+#          g, grad = problem.omp_select_groups_glm(selected_groups[:k], mask, last_grad, costs, groups, 
+          pass
         else:
           print 'Unknown method: %s' % (method)
           break
