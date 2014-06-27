@@ -878,7 +878,7 @@ def all_results_groups_glm(X, Y, l2_lam, costs, groups, model='linear', K=None, 
     elif model == 'logistic':
       
       problem = OptProblem(X, Y, opt_logistic
-    model = '
+    model = ''
 
     problem = OptProblem(X, Y, opt_raw_no_cplex, rsquared_combined_bC, gradient_bC, args=opt_args)
     problem.b = b
