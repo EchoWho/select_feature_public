@@ -3,7 +3,7 @@ import scipy.sparse as ssp
 import scipy.io
 import sys,os
 import os.path
-import opt
+import opt2
 
 class Dataset(object):
   def __init__(self, data_dir, result_dir, fn_group_info):
@@ -34,7 +34,9 @@ class Dataset(object):
     std_X = np.std(X_all, axis=0)
     std_X += std_X == 0
     X = (X_all - m_X) / std_X
-    Y = (Y_all - m_Y)
+    #Y = (Y_all - m_Y)
+    Y = Y_all
+
     b = X.T.dot(Y) / X.shape[0]
     C_no_regul = X.T.dot(X) / X.shape[0]
     C_no_regul = (C_no_regul+C_no_regul.T) / 2
@@ -45,13 +47,6 @@ class Dataset(object):
 
     return X, Y, b, C_no_regul, m_X, m_Y, std_X
 
-  def pretrain_online(self, fn_trains):
-    """ Only one pre_training file is opened at a time; and we don't need to
-        load a full data matrix X in the memory """
-    # this requrire a very different structure of how data are loaded;
-    # the pretrain info are computed while the data is loaded.
-    pass
-
   def preprocess_data(self, X_raw, Y_raw, fn_trains):
     d = np.load(self.filename_preprocess_info(fn_trains))
     m_X = d['m_X']
@@ -59,90 +54,105 @@ class Dataset(object):
     std_X = d['std_X']
     d.close()
     X = (X_raw - m_X) / std_X
-    Y = (Y_raw - m_Y)
-    return X, Y
+    return X, Y_raw
     
   def train(self, fn_trains, params):
-    do_logistic = False
-    d = np.load(self.filename_preprocess_info(fn_trains))
-    b = d['b']
-    C_no_regul = d['C_no_regul']
-    X = None
-    Y = None
-    if ('logistic' in params) and (params['logistic']):
-      do_logistic = True
-      X,Y = self.load_all_data(fn_trains)
-      X,Y = self.preprocess_data(X,Y, fn_trains)
-      Y = Y > 0
-    d.close()
-    group_results = opt.all_results_bC(b, C_no_regul, params['l2_lam'], X=X, Y=Y, costs=self.costs, groups=self.groups,optimal=False, release=True, do_FR=params['do_FR'], do_logistic=do_logistic)
-    np.savez(self.filename_model(fn_trains, params), **group_results)
+    print "Load and pretrain"
+    X_tra, Y_tra, b, C_no_regul, m_X, m_Y, std_X = self.pretrain(fn_trains)
+    print "finished loading"
+
+    all_results = opt2.all_results(X_tra, Y_tra, m_Y, b, C_no_regul,
+      costs=self.costs, groups=self.groups,
+      l2_lam=params['l2_lam'], 
+      regression_methods=params['regression_methods'],
+      opt_methods=params['opt_methods'], 
+      params=params)
+
+    for rm_i, rm in enumerate(params['regression_methods']):
+      params['method'] = rm
+      np.savez(self.filename_model(fn_trains, params), **all_results[rm_i])
+
+    return all_results
 
   def predict_one_file(self, fn_test, selected, w, params):
     X_raw, Y_raw = self.load_data(fn_test)
     X, Y = self.preprocess_data(X_raw, Y_raw, fn_trains)
-    
-    d_preprocess_info = np.load(self.filename_preprocess_info(fn_trains))
-    m_Y = d_preprocess_info['m_Y']
-
-    if ('logistic' in params) and (params['logistic']):
-      Y_hat = opt.logistic_predict(X[:,selected], w)
+    X_sel = X[:,selected]
+    if params['method'] == 'linear':
+      d_preprocess_info = np.load(self.filename_preprocess_info(fn_trains))
+      m_Y = d_preprocess_info['m_Y']
+      Y_hat = opt2.OptSolverLinear.predict(X_sel, w) + m_Y
+    elif params['method'] == 'logistic':
+      Y_hat = opt2.OptSolverLogistic.predict(X_sel, w)
+    elif params['method'] == 'glm':
+      Y_hat = opt2.OptSolverGLM.predict(X_sel,w)
     else:
-      Y_hat = X[:,selected].dot(w) + m_Y
+      print "Error: unknown regression method %s" % (params['method'])
+      sys.exit(1)
     return Y_hat
   
-  def compute_budget_vs_loss_one_file(self, fn_test, fn_trains, params):
+  def evaluate_one_file(self, fn_test, fn_trains, params):
     X_raw, Y_raw = self.load_data(fn_test)
     return self.compute_budget_vs_loss_XY(X_raw, Y_raw, fn_test, fn_trains, params)
  
-  def compute_budget_vs_loss_multi_files(self, fn_tests, fn_trains, params):
+  def evaluate_multi_files(self, fn_tests, fn_trains, params):
     X_raw, Y_raw = self.load_all_data(fn_tests)
     return self.compute_budget_vs_loss_XY(X_raw, Y_raw, fn_tests, fn_trains, params)
 
   def compute_budget_vs_loss_XY(self, X_raw, Y_raw, fn_result, fn_trains, params):
     X, Y = self.preprocess_data(X_raw, Y_raw, fn_trains)
-    do_logistic = ('logistic' in params) and (params['logistic'])
-    if do_logistic:
-      Y = Y > 0
-    
-    model = np.load(self.filename_model(fn_trains, params))
-    methods = model.keys()
-    budget_vs_loss_all = []
-    for method_idx, method in enumerate(methods) :
-      budget_vs_loss = []
-      model_method = model[method]
-      vec_selected = model_method['selected']
-      vec_w = model_method['w']
-      vec_costs = model_method['cost']
+
+    bvl_cross_rm = []
+    for rm in params['regression_methods']:
+      params['method'] = rm
+      if params['method'] == 'logistic':
+        Y_label = Y > 0
+      if params['method'] == 'glm':
+        nbr_responses = 1
+        if len(Y.shape) > 1:
+          nbr_responses = Y.shape[1]
+        calib_funcs = opt2.generate_glm_funcs(nbr_responses,params['glm_power'])
       
-      for idx, cost in enumerate(vec_costs):
-        selected = vec_selected[idx]
-        w = vec_w[idx]
-        selected_X = X[:, selected]
-        if selected_X.shape[1] > 0:
-          if do_logistic:
-            Y_hat = opt.logistic_predict(selected_X, w)
-            budget_vs_loss.append((cost, np.sum((Y_hat > 0.5) != Y) / np.float(Y.shape[0]), Y_hat))
-          else:
-            budget_vs_loss.append((cost, opt.loss(w, selected_X, Y)))
+      model = np.load(self.filename_model(fn_trains, params))
+      methods = model.keys()
+      budget_vs_loss_all = []
+      for method_idx, method in enumerate(methods) :
+        budget_vs_loss = []
+        model_method = model[method]
+        vec_selected = model_method['selected']
+        vec_w = model_method['model']
+        vec_costs = model_method['cost']
+        
+        for idx, cost in enumerate(vec_costs):
+          selected = vec_selected[idx]
+          w = vec_w[idx]
+          selected_X = X[:, selected]
+          if params['method'] == 'linear':
+            Y_hat = opt2.OptSolverLinear.predict(selected_X, w)
+            budget_vs_loss.append((cost, opt2.square_error(Y_hat, Y)))
+          elif params['method'] == 'logistic':
+            Y_hat = opt2.OptSolverLogistic.predict(selected_X, w)
+            budget_vs_loss.append((cost, opt2.square_error(Y_hat, Y), 
+              np.sum((Y_hat > 0.5) == Y_label) / np.float(Y.shape[0])))
+          elif params['method'] == 'glm':
+            Y_hat = opt2.OptSolverGLM.predict(selected_X, w, calib_funcs) 
+            budget_vs_loss.append((cost, opt2.square_error(Y_hat, Y)))
+
+        #endfor cost
+        if params['method'] == 'logistic':
+          budget_vs_loss = np.asarray(budget_vs_loss, 
+                                      dtype=[('cost', np.float64), ('loss', np.float64), ('accu', np.float64)])
         else:
-          if do_logistic:
-            #budget_vs_loss.append(
-            budget_vs_loss.append((cost, len(np.nonzero(Y)[0]) / np.float(Y.shape[0]), np.zeros(Y.shape[0])))
-          else:
-            budget_vs_loss.append((cost, opt.loss(0, np.zeros(Y.shape[0]), Y)))
+          budget_vs_loss = np.asarray(budget_vs_loss, 
+                                      dtype=[('cost', np.float64), ('loss', np.float64)])
+        budget_vs_loss_all.append(budget_vs_loss)
 
-      if do_logistic:
-        budget_vs_loss = np.asarray(budget_vs_loss, 
-                                    dtype=[('cost', np.float64), ('loss', np.float64), ('Y_hat', object)])
-      else:
-        budget_vs_loss = np.asarray(budget_vs_loss, 
-                                    dtype=[('cost', np.float64), ('loss', np.float64)])
-      budget_vs_loss_all.append(budget_vs_loss)
 
-    budget_vs_loss_all = dict(zip(methods, budget_vs_loss_all)) 
-    np.savez(self.filename_budget_vs_loss(fn_result, fn_trains, params), **budget_vs_loss_all)
-    return budget_vs_loss_all
+      budget_vs_loss_all = dict(zip(methods, budget_vs_loss_all)) 
+      np.savez(self.filename_budget_vs_loss(fn_result, fn_trains, params), **budget_vs_loss_all)
+      bvl_cross_rm.append(budget_vs_loss_all)
+    #endfor rm in regression methods
+    return dict(zip(params['regression_methods'], bvl_cross_rm))
 
   def load_group_info(self):
     filename = '%s/%s' % (self.data_dir, self.fn_group_info)
@@ -218,7 +228,7 @@ class Dataset(object):
       Y_all.append(Y)
     fin.close()
     X_all = np.vstack(X_all)
-    Y_all = np.hstack(Y_all)
+    Y_all = np.vstack(Y_all)
     return X_all, Y_all
 
   def load_data(self, fn):
@@ -229,12 +239,10 @@ class Dataset(object):
       d = scipy.io.loadmat(filename)
       X = d['X']
       Y = d['Y']
-      if (Y.shape[0] == 1):
-        Y = Y[0, :]
-      elif (Y.shape[1] == 1):
-        Y = Y[:, 0]
-      else:
-        print "Error: Y must be a vector\n"
+      if (Y.shape[0] == 1) and (Y.shape[1] == X.shape[0]):
+        # TODO remove this hack eventually
+        Y = Y.T
+      if X.shape[0] != Y.shape[0]:
         sys.exit(1)
 
     elif fextension == '.npz':
@@ -242,12 +250,11 @@ class Dataset(object):
       d = np.load(filename)
       X = d['X']
       Y = d['Y']
+      if len(Y.shape) == 1:
+        Y = Y.reshape((Y.shape[0], 1))
       d.close()
-      if (len(Y.shape) != 1):
-        print "Error: Y must be a vector\n"
-        sys.exit(1)
       if (Y.shape[0] != X.shape[0]):
-        print "Error: Every feature must has a label\n"
+        print "Error: Number of labels is not equal to number of features"
         sys.exit(1)
 
     elif fextension == '.csv' or fextension == '.txt':
@@ -271,7 +278,7 @@ class Dataset(object):
             dataline[i-1] = np.float64(f)
         X.append(dataline)
       X = np.array(X)
-      Y = np.array(Y)
+      Y = np.array(Y).reshape((len(Y), 1))
       fin.close()
 
     elif fextension == '.svmlight':
@@ -296,14 +303,13 @@ class Dataset(object):
               pass
         X.append(dataline)
       X = np.array(X)
-      Y = np.array(Y)
+      Y = np.array(Y).reshape((len(Y),1))
       fin.close()
 
     else:
       print "Error: Unknown data file extension"
       sys.exit(1)
     return X, Y
-    
 
   def filename_model(self, fn_trains, params):
     fn_trains = os.path.splitext(fn_trains)[0]
@@ -320,7 +326,7 @@ class Dataset(object):
       self.param2str(params=params))
 
   def param2str(self,params):
-    return '.lam%f' % (params['l2_lam'])
+    return '.lam%f.%s' % (params['l2_lam'], params['method'])
 
 def convert_to_spams_format(X, Y, groups):
   # X, Y are preprocessed
