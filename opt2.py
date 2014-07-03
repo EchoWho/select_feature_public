@@ -82,7 +82,7 @@ def opt_glm_explicit(X, Y, potential_func, mean_func, mean_lipschitz, w0=None,
 
   return w, -objective 
       
-def opt_glm_implicit(X, Y, calib_funcs, intercept=True, w0=None, C_inv=None, l2_lam=None):
+def opt_glm_implicit(X, Y, calib_funcs, max_iter=None, intercept=True, C_inv=None, l2_lam=None):
   nbr_calib_funcs = len(calib_funcs)
   nbr_samples = np.float64(Y.shape[0])
   nbr_feats = X.shape[1]
@@ -109,17 +109,13 @@ def opt_glm_implicit(X, Y, calib_funcs, intercept=True, w0=None, C_inv=None, l2_
   vec_w = []
   vec_w_tilt = []
   w = np.zeros((w_len, nbr_responses))
-  if w0 != None:
-    w[:w0.shape[0]] = w0
-    Y_hat = X.dot(w)
-  else:
-    Y_hat = np.zeros(Y.shape)
+  Y_hat = np.zeros(Y.shape)
   vec_w.append(w)
 
   has_converge = False
   is_first = True
   iter_idx = 0
-  while (not has_converge) and (iter_idx < 200):
+  while (not has_converge) and (max_iter == None or iter_idx < max_iter):
     w = opt_linear(X, Y-Y_hat, C_inv)
     vec_w.append(w)
     Y_tilt = Y_hat + X.dot(w)
@@ -319,7 +315,7 @@ def alg_omp(problem, K=None, costs=None, groups=None):
 
   t0 = time.time()
   for k in range(K):
-    #print 'OMP Iteration %d' % k
+    print 'OMP Iteration %d' % k
 
     g = problem.omp_select_groups(best_feats[:best_feats_end], mask, 
       last_model, costs, groups)
@@ -480,16 +476,18 @@ class OptSolverLogistic(object):
     return np.sum(b_g.dot(M) * b_g) / np.float64(data.n_features())
 
 class OptSolverGLM(object):
-  def __init__(self, l2_lam=1e-6, glm_power=4, nbr_responses=1):
+  def __init__(self, l2_lam=1e-6, glm_power=4, nbr_responses=1, max_iter=None):
     self.l2_lam = l2_lam
     self.glm_power = glm_power
     self.nbr_responses = nbr_responses
     self.intercept=True
+    self.max_iter=max_iter
     self.calib_funcs, self.weighted_gradients_func = \
       generate_glm_funcs(nbr_responses, glm_power)
 
   def opt_and_score(self, data, selected_feats, model0=None):
     return opt_glm_implicit(data.X[:, selected_feats], data.Y, self.calib_funcs, 
+      max_iter=self.max_iter, 
       C_inv=np.linalg.pinv(data.C[selected_feats[:,np.newaxis], selected_feats]))
 
   @staticmethod
@@ -537,7 +535,7 @@ class OptProblem(object):
     best_ip = 0.0
     best_g = -1
 
-    #print 'running omp selection with %s already selected' % selected
+    #print 'running omp selection with %s already selected' % np.sum(mask)
 
     for g in np.unique(groups):
       if mask[g]:
@@ -578,11 +576,16 @@ def all_results(X=None, Y=None,
       problem = OptProblem(data, OptSolverLogistic(l2_lam))
     elif rm == 'glm':
       nbr_responses = data.n_responses()
+      max_iter = None
+      if params.has_key('glm_max_iter'):
+        max_iter = params['glm_max_iter']
       if params.has_key('glm_power'):
         glm_power = params['glm_power']
-        problem = OptProblem(data, OptSolverGLM(l2_lam, glm_power, nbr_responses))
+        problem = OptProblem(data, OptSolverGLM(l2_lam, glm_power, 
+                                                nbr_responses, max_iter))
       else:
-        problem = OptProblem(data, OptSolverGLM(l2_lam, nbr_responses=nbr_responses)) 
+        problem = OptProblem(data, OptSolverGLM(l2_lam, nbr_responses=nbr_responses,
+                                                max_iter=max_iter)) 
     else:
       print 'Error: Unknown regression_method - %s' % (rm)
       break

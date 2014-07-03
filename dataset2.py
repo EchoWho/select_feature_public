@@ -26,8 +26,8 @@ class Dataset(object):
         'npz : containing vectors: groups, costs\n'\
         'mat : containing vectors: groups, costs\n'
 
-  def pretrain(self, fn_trains):
-    X_all, Y_all = self.load_all_data(fn_trains)
+  def pretrain(self, fn_trains, params):
+    X_all, Y_all = self.load_all_data(fn_trains, params['val_map'])
     
     m_X = np.mean(X_all, axis=0)
     m_Y = np.mean(Y_all, axis=0)
@@ -58,7 +58,9 @@ class Dataset(object):
     
   def train(self, fn_trains, params):
     print "Load and pretrain"
-    X_tra, Y_tra, b, C_no_regul, m_X, m_Y, std_X = self.pretrain(fn_trains)
+    if not params.has_key('val_map'):
+      params['val_map'] = None
+    X_tra, Y_tra, b, C_no_regul, m_X, m_Y, std_X = self.pretrain(fn_trains, params)
     print "finished loading"
 
     all_results = opt2.all_results(X_tra, Y_tra, m_Y, b, C_no_regul,
@@ -75,7 +77,7 @@ class Dataset(object):
     return all_results
 
   def predict_one_file(self, fn_test, selected, w, params):
-    X_raw, Y_raw = self.load_data(fn_test)
+    X_raw, Y_raw = self.load_data(fn_test, params['val_map'])
     X, Y = self.preprocess_data(X_raw, Y_raw, fn_trains)
     X_sel = X[:,selected]
     if params['method'] == 'linear':
@@ -92,11 +94,11 @@ class Dataset(object):
     return Y_hat
   
   def evaluate_one_file(self, fn_test, fn_trains, params):
-    X_raw, Y_raw = self.load_data(fn_test)
+    X_raw, Y_raw = self.load_data(fn_test, params['val_map'])
     return self.compute_budget_vs_loss_XY(X_raw, Y_raw, fn_test, fn_trains, params)
  
   def evaluate_multi_files(self, fn_tests, fn_trains, params):
-    X_raw, Y_raw = self.load_all_data(fn_tests)
+    X_raw, Y_raw = self.load_all_data(fn_tests, params['val_map'])
     return self.compute_budget_vs_loss_XY(X_raw, Y_raw, fn_tests, fn_trains, params)
 
   def compute_budget_vs_loss_XY(self, X_raw, Y_raw, fn_result, fn_trains, params):
@@ -107,7 +109,7 @@ class Dataset(object):
       params['method'] = rm
       if params['method'] == 'glm':
         nbr_responses = Y.shape[1]
-        calib_funcs = opt2.generate_glm_funcs(nbr_responses,params['glm_power'])
+        calib_funcs, _ = opt2.generate_glm_funcs(nbr_responses,params['glm_power'])
       
       model = np.load(self.filename_model(fn_trains, params))
       methods = model.keys()
@@ -132,7 +134,7 @@ class Dataset(object):
 
           if params['classification']:
             budget_vs_loss.append((cost, opt2.square_error(Y_hat, Y), 
-              np.sum((np.round(Y_hat) == Y_label) / np.float(Y.shape[0])))
+              np.sum((np.round(Y_hat) == Y) / np.float(Y.shape[0]))))
           else:
             budget_vs_loss.append((cost, opt2.square_error(Y_hat, Y)))
 
@@ -210,7 +212,7 @@ class Dataset(object):
       print "Error: Some groups are not assigned a cost\n"
       sys.exit(1)
 
-  def load_all_data(self, fn_names):
+  def load_all_data(self, fn_names, val_map=lambda x:x):
     X_all = []
     Y_all = []
     filename = '%s/%s' % (self.data_dir, fn_names)
@@ -221,7 +223,7 @@ class Dataset(object):
       sys.exit(1)
     for fn in fin:  
       fn = fn.rstrip()
-      X, Y = self.load_data(fn)
+      X, Y = self.load_data(fn, val_map)
       X_all.append(X)
       Y_all.append(Y)
     fin.close()
@@ -229,7 +231,7 @@ class Dataset(object):
     Y_all = np.vstack(Y_all)
     return X_all, Y_all
 
-  def load_data(self, fn):
+  def load_data(self, fn, val_map=lambda x:x):
     _, fextension = os.path.splitext(fn)
     filename = '%s/%s' % (self.data_dir, fn)
     if fextension == '.mat':
@@ -307,7 +309,7 @@ class Dataset(object):
     else:
       print "Error: Unknown data file extension"
       sys.exit(1)
-    return X, Y
+    return X, val_map(Y)
 
   def filename_model(self, fn_trains, params):
     fn_trains = os.path.splitext(fn_trains)[0]
