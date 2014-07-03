@@ -425,7 +425,9 @@ class OptProblem(object):
         selected_feats = np.hstack(selected_feats)
 
         if logistic:
-          res = (self.Y - logistic_predict(self.X[:, selected_feats], w)) / self.Y.shape[0]
+          exp_dot_Xw = np.exp(-np.dot(self.X[:,selected_feats], w[1:]) - w[0])
+          res = (self.Y - logistic_predict(self.X[:, selected_feats], w)) * exp_dot_Xw / ((1.0 + exp_dot_Xw) ** 2) / self.Y.shape[0]
+          #res = (self.Y - logistic_predict(self.X[:, selected_feats], w)) / self.Y.shape[0]
         else:
           res = (self.Y - self.X[:, selected_feats].dot(w)) / self.Y.shape[0]
 
@@ -444,14 +446,13 @@ class OptProblem(object):
 
             ip = bG.dot(np.linalg.inv(CG)).dot(bG) / costs[g]
 
-            # print 'group %d ip %f' % (g, ip)
-            # print ip, k
+            #print 'group %d ip %f' % (g, ip)
 
             if ip > best_ip:
                 best_ip = ip
                 best_g = g
 
-        # print 'best was %d ip %f' % (best_g, best_ip)
+        #print 'best was %d ip %f' % (best_g, best_ip)
         return best_g
 
     def lasso_check(self, selected, eps, costs=None):
