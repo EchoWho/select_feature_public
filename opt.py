@@ -450,14 +450,13 @@ class OptProblem(object):
 
             ip = bG.dot(np.linalg.inv(CG)).dot(bG) / costs[g]
 
-            # print 'group %d ip %f' % (g, ip)
-            # print ip, k
+            #print 'group %d ip %f' % (g, ip)
 
             if ip > best_ip:
                 best_ip = ip
                 best_g = g
 
-        # print 'best was %d ip %f' % (best_g, best_ip)
+        #print 'best was %d ip %f' % (best_g, best_ip)
         return best_g
 
     def lasso_check(self, selected, eps, costs=None):
