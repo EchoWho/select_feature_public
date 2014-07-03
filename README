@@ -59,3 +59,24 @@ The general pipelien is the following:
    same format as <fn_trains>. 
 
 
+6. Interpret the results:
+		
+	 The exact interface of using the results are still up to change. 
+
+	 As of the time of writing (2014-06-24), the <result_root_dir> contains a couple .npz
+	 files that are useful:
+
+	 		<fn_tests>.<fn_trains>.budget_vs_loss.lam****.npz 
+		
+	 contains budget vs. loss arrays for OMP and FR (if it is ued). 
+
+	 		<fn_trains>.model.lam****.npz 
+		
+	 contains models of the linear predictions at each feature group selection. To see which 
+	 groups are selected, use:
+	 	
+		 d= np.load(<fn_trains>.model.lam****.npz)
+		 print d['OMP']['group']   # or d['FR']['group']
+
+	 THe printed results are the group indices in their order of selection, where the first -1 
+	 means that the at initial state, no groups are selected. 
