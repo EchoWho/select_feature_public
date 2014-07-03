@@ -105,12 +105,8 @@ class Dataset(object):
     bvl_cross_rm = []
     for rm in params['regression_methods']:
       params['method'] = rm
-      if params['method'] == 'logistic':
-        Y_label = Y > 0
       if params['method'] == 'glm':
-        nbr_responses = 1
-        if len(Y.shape) > 1:
-          nbr_responses = Y.shape[1]
+        nbr_responses = Y.shape[1]
         calib_funcs = opt2.generate_glm_funcs(nbr_responses,params['glm_power'])
       
       model = np.load(self.filename_model(fn_trains, params))
@@ -129,17 +125,19 @@ class Dataset(object):
           selected_X = X[:, selected]
           if params['method'] == 'linear':
             Y_hat = opt2.OptSolverLinear.predict(selected_X, w)
-            budget_vs_loss.append((cost, opt2.square_error(Y_hat, Y)))
           elif params['method'] == 'logistic':
             Y_hat = opt2.OptSolverLogistic.predict(selected_X, w)
-            budget_vs_loss.append((cost, opt2.square_error(Y_hat, Y), 
-              np.sum((Y_hat > 0.5) == Y_label) / np.float(Y.shape[0])))
           elif params['method'] == 'glm':
             Y_hat = opt2.OptSolverGLM.predict(selected_X, w, calib_funcs) 
+
+          if params['classification']:
+            budget_vs_loss.append((cost, opt2.square_error(Y_hat, Y), 
+              np.sum((np.round(Y_hat) == Y_label) / np.float(Y.shape[0])))
+          else:
             budget_vs_loss.append((cost, opt2.square_error(Y_hat, Y)))
 
         #endfor cost
-        if params['method'] == 'logistic':
+        if params['classification']:
           budget_vs_loss = np.asarray(budget_vs_loss, 
                                       dtype=[('cost', np.float64), ('loss', np.float64), ('accu', np.float64)])
         else:
