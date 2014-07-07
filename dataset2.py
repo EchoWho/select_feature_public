@@ -78,7 +78,11 @@ class Dataset(object):
 
   def predict_one_file(self, fn_test, fn_trains, params, nbr_groups=-1):
     X_raw, Y_raw = self.load_data(fn_test, params['val_map'])
-    X, Y = self.preprocess_data(X_raw, Y_raw, fn_trains)
+    X, _ = self.preprocess_data(X_raw, Y_raw, fn_trains)
+    has_Y_transformation = False
+    if params.has_key('val_map_predict') and params['val_map_predict'] != None:
+      has_Y_transformation = True
+      transform_Y_func = params['val_map_predict']
 
     d_model = np.load(self.filename_model(fn_trains, params))
     d_model = d_model['%s_%s' % (params['r_method'], params['o_method'])]
@@ -95,6 +99,9 @@ class Dataset(object):
     else:
       print "Error: unknown regression method %s" % (params['r_method'])
       sys.exit(1)
+
+    if has_Y_transformation:
+      Y_hat = transform_Y_func(Y_hat)
     return Y_hat
   
   def evaluate_one_file(self, fn_test, fn_trains, params):
@@ -107,6 +114,11 @@ class Dataset(object):
 
   def compute_budget_vs_loss_XY(self, X_raw, Y_raw, fn_result, fn_trains, params):
     X, Y = self.preprocess_data(X_raw, Y_raw, fn_trains)
+    has_Y_transformation = False
+    if params.has_key('val_map_predict') and params['val_map_predict'] != None:
+      has_Y_transformation = True
+      transform_Y_func = params['val_map_predict']
+      Y = transform_Y_func(Y)
 
     bvl_cross_rm = []
     for rm in params['regression_methods']:
@@ -136,9 +148,12 @@ class Dataset(object):
           elif params['r_method'] == 'glm':
             Y_hat = opt2.OptSolverGLM.predict(selected_X, w, calib_funcs) 
 
+          if has_Y_transformation:
+            Y_hat = transform_Y_func(Y_hat)
+
           if params['classification']:
             budget_vs_loss.append((cost, opt2.square_error(Y_hat, Y), 
-              np.sum((np.round(Y_hat) == Y) / np.float(Y.shape[0]))))
+              np.sum((Y_hat == Y) / np.float(Y.shape[0]))))
           else:
             budget_vs_loss.append((cost, opt2.square_error(Y_hat, Y)))
 
