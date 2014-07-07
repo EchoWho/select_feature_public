@@ -71,25 +71,29 @@ class Dataset(object):
       params=params)
 
     for rm_i, rm in enumerate(params['regression_methods']):
-      params['method'] = rm
+      params['r_method'] = rm
       np.savez(self.filename_model(fn_trains, params), **all_results[rm_i])
 
     return all_results
 
-  def predict_one_file(self, fn_test, selected, w, params):
+  def predict_one_file(self, fn_test, fn_trains, params, nbr_groups=-1):
     X_raw, Y_raw = self.load_data(fn_test, params['val_map'])
     X, Y = self.preprocess_data(X_raw, Y_raw, fn_trains)
+
+    d_model = np.load(self.filename_model(fn_trains, params))
+    d_model = d_model['%s_%s' % (params['r_method'], params['o_method'])]
+    selected = d_model['selected'][nbr_groups]
+    w = d_model['model'][nbr_groups]
     X_sel = X[:,selected]
-    if params['method'] == 'linear':
-      d_preprocess_info = np.load(self.filename_preprocess_info(fn_trains))
-      m_Y = d_preprocess_info['m_Y']
-      Y_hat = opt2.OptSolverLinear.predict(X_sel, w) + m_Y
-    elif params['method'] == 'logistic':
+    if params['r_method'] == 'linear':
+      Y_hat = opt2.OptSolverLinear.predict(X_sel, w)
+    elif params['r_method'] == 'logistic':
       Y_hat = opt2.OptSolverLogistic.predict(X_sel, w)
-    elif params['method'] == 'glm':
-      Y_hat = opt2.OptSolverGLM.predict(X_sel,w)
+    elif params['r_method'] == 'glm':
+      calib_funcs, _ = opt2.generate_glm_funcs(w[0][0].shape[1], params['glm_power'])
+      Y_hat = opt2.OptSolverGLM.predict(X_sel,w, calib_funcs)
     else:
-      print "Error: unknown regression method %s" % (params['method'])
+      print "Error: unknown regression method %s" % (params['r_method'])
       sys.exit(1)
     return Y_hat
   
@@ -106,8 +110,8 @@ class Dataset(object):
 
     bvl_cross_rm = []
     for rm in params['regression_methods']:
-      params['method'] = rm
-      if params['method'] == 'glm':
+      params['r_method'] = rm
+      if params['r_method'] == 'glm':
         nbr_responses = Y.shape[1]
         calib_funcs, _ = opt2.generate_glm_funcs(nbr_responses,params['glm_power'])
       
@@ -125,11 +129,11 @@ class Dataset(object):
           selected = vec_selected[idx]
           w = vec_w[idx]
           selected_X = X[:, selected]
-          if params['method'] == 'linear':
+          if params['r_method'] == 'linear':
             Y_hat = opt2.OptSolverLinear.predict(selected_X, w)
-          elif params['method'] == 'logistic':
+          elif params['r_method'] == 'logistic':
             Y_hat = opt2.OptSolverLogistic.predict(selected_X, w)
-          elif params['method'] == 'glm':
+          elif params['r_method'] == 'glm':
             Y_hat = opt2.OptSolverGLM.predict(selected_X, w, calib_funcs) 
 
           if params['classification']:
@@ -326,7 +330,7 @@ class Dataset(object):
       self.param2str(params=params))
 
   def param2str(self,params):
-    return '.lam%f.%s' % (params['l2_lam'], params['method'])
+    return '.lam%f.%s' % (params['l2_lam'], params['r_method'])
 
 def convert_to_spams_format(X, Y, groups):
   # X, Y are preprocessed
