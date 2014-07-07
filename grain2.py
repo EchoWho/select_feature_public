@@ -16,6 +16,7 @@ def doit():
   params['glm_max_iter'] = 10
   params['classification'] = True
   params['val_map'] = lambda x: x - 1
+  params['val_map_predict'] = lambda x : (x > 0.5) + 1
 
   D.train(fn_trains, params)
   return D.evaluate_multi_files(fn_test, fn_trains, params)

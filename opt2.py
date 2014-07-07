@@ -127,9 +127,9 @@ def opt_glm_implicit(X, Y, calib_funcs, max_iter=None, intercept=True, C_inv=Non
     vec_w_tilt.append(w_tilt) 
     Y_hat = G_Y_tilt.T.dot(w_tilt).T.reshape(Y.shape)
 
-    loss = np.linalg.norm(Y_hat - Y) / nbr_samples
+    loss = np.sum((Y_hat - Y)**2) / nbr_samples
     if is_first:
-      loss_init = np.linalg.norm(Y) / nbr_samples
+      loss_init = np.sum(Y**2) / nbr_samples
       is_first = False
     elif abs(old_loss - loss) < 1e-5:
       has_converge = True
@@ -251,7 +251,7 @@ def alg_forward(problem, K=None, costs=None, groups=None):
 
   t0 = time.time()
   for k in range(K):
-    #print 'FR Iteration %d' % k
+    print 'FR Iteration %d' % k
     best_gain = 0
     best_group = -1
     for g in range(n_groups):
