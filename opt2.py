@@ -347,18 +347,16 @@ def alg_omp(problem, K=None, costs=None, groups=None):
                     ('model', object), ('time', np.float)])
 
 class ProblemData(object):
-  def __init__(self, X=None, Y=None, m_Y=None, b=None, C_no_regul=None, costs=None, groups=None, l2_lam=1e-6):
+  def __init__(self, X=None, Y=None, b=None, C_no_regul=None, costs=None, groups=None, l2_lam=1e-6):
     if X==None and Y==None and C_no_regul==None and b==None:
       print "Error: no data are given"
     self.X = X
     self.Y = Y
+    m_Y = np.mean(Y, axis=0)
     self.m_Y = m_Y
     self.b = b
     if b==None and Y==None:
       print "Error: one of b and Y must be not NULL"
-      sys.exit(1)
-    if b!=None and m_Y == None:
-      print "Erro: Must know m_Y when using \"b\""
       sys.exit(1)
     if b != None and Y == None:
       self.Y = np.zeros((1, b.shape[1]))
@@ -558,7 +556,7 @@ class OptProblem(object):
 
 
 def all_results(X=None, Y=None, 
-                m_Y=None, b=None, C_no_regul=None, 
+                b=None, C_no_regul=None, 
                 costs=None, groups=None,
                 K=None,
                 l2_lam=1e-6, 
@@ -566,7 +564,7 @@ def all_results(X=None, Y=None,
                 opt_methods=['FR'], # 'OMP'
                 params={}):
  
-  data = ProblemData(X,Y,m_Y,b,C_no_regul,costs,groups,l2_lam)
+  data = ProblemData(X,Y,b,C_no_regul,costs,groups,l2_lam)
   ret = [] 
   for rm in regression_methods:
     # Initialize problem (problem data + solver)
