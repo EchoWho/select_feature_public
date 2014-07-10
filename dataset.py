@@ -105,6 +105,9 @@ class Dataset(object):
     if do_logistic:
       Y = Y > 0
     
+    d_pretrain = np.load(self.filename_preprocess_info(fn_trains))
+    m_Y = d_pretrain['m_Y']
+    
     model = np.load(self.filename_model(fn_trains, params))
     methods = model.keys()
     budget_vs_loss_all = []
@@ -124,6 +127,10 @@ class Dataset(object):
             Y_hat = opt.logistic_predict(selected_X, w)
             budget_vs_loss.append((cost, np.sum((Y_hat > 0.5) != Y) / np.float(Y.shape[0]), Y_hat))
           else:
+            #TODO hack here
+            Y_hat = selected_X.dot(w) + m_Y
+            err = np.sum((Y_hat > 1.5) != (Y > 0)) / np.float64(Y.shape[0])
+            print err
             budget_vs_loss.append((cost, opt.loss(w, selected_X, Y)))
         else:
           if do_logistic:

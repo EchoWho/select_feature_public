@@ -435,7 +435,7 @@ class OptSolverLinear(object):
 
   def compute_grad_proxy(self, data, selected_feats, model):
     if self.intercept:
-      model = model[1:]
+      return data.b - data.C[:,selected_feats].dot(model[1:]) - model[0]
     return data.b - data.C[:,selected_feats].dot(model)
 
   def compute_whitened_group_gradient_square(self, grad_proxy, data, sel_g, M):
