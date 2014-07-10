@@ -346,7 +346,7 @@ class OptProblem(object):
           Y_hat = exp_dot_Xw / (1.0 + exp_dot_Xw)
 
           # check objective
-          objective = (np.sum(np.log(1.0 + exp_dot_Xw)) - np.dot(self.Y, dot_Xw)) / self.Y.shape[0] + 
+          objective = (np.sum(np.log(1.0 + exp_dot_Xw)) - np.dot(self.Y, dot_Xw)) / self.Y.shape[0] + \
             self.l2_lam / 2.0 * np.dot(w[1:], w[1:])
           accu = np.sum((Y_hat > 0.5) == self.Y) / np.float(self.Y.shape[0])
           #print 'iter %d: accu: %f ; objective: %f' % (nbr_iter, accu, objective)
@@ -861,34 +861,6 @@ def all_results_bC(b, C_no_regul, l2_lam, X=None, Y=None, K=None, costs=None, gr
         return all_results_p(problem, K, costs, optimal)
     else:
         return all_results_groups_p(problem, K, costs, groups, optimal, release, do_FR, do_logistic)
-
-#def all_results_groups_glm(X, Y, l2_lam, K=None, costs=None, groups=None, optimal=None, do_FR=True, do_logistic=False):
-def all_results_groups_glm(X, Y, l2_lam, costs, groups, model='linear', K=None, methods=None):
-    if methods == None:
-      methods = [ 'FR', 'OMP' ]
-    
-    if model == 'linear':
-      problem = OptProblem(X, Y, opt_raw_no_cplex, rsquared_combined_bC, gradient_bC)
-      problem.b = np.dot(X, Y) / np.float64(X.shape[0])
-      problem.C_no_regul = np.dot(X, X) / np.float64(X.shape[0])
-      problem.C = problem.C_no_regul + l2_lam * np.eye(C_no_regul.shape[0])
-      problem.l2_lam = l2_lam
-
-    elif model == 'logistic':
-      
-      problem = OptProblem(X, Y, opt_logistic
-    model = ''
-
-    problem = OptProblem(X, Y, opt_raw_no_cplex, rsquared_combined_bC, gradient_bC, args=opt_args)
-    problem.b = b
-    problem.C_no_regul = C_no_regul
-    problem.C = C_no_regul + l2_lam * np.eye(C_no_regul.shape[0])
-    problem.l2_lam = l2_lam
-
-    if groups is None:
-      groups = np.arange(C_no_regul
-    return all_results_groups_p(problem, K, costs, groups, optimal, release, do_FR, do_logistic)
-
 
 def plot(results, names, **plot_args):
     colors = ['r', 'g', 'b', 'k']

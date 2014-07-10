@@ -63,7 +63,7 @@ class Dataset(object):
     X_tra, Y_tra, b, C_no_regul, m_X, m_Y, std_X = self.pretrain(fn_trains, params)
     print "finished loading"
 
-    all_results = opt2.all_results(X_tra, Y_tra, m_Y, b, C_no_regul,
+    all_results = opt2.all_results(X_tra, Y_tra, b, C_no_regul,
       costs=self.costs, groups=self.groups,
       l2_lam=params['l2_lam'], 
       regression_methods=params['regression_methods'],
