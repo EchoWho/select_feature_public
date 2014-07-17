@@ -2,20 +2,35 @@ import numpy as np
 import time
 import sys
 import functools
+import opt_util
 
 def square_error(Y_hat, Y):
   return np.sum((Y_hat - Y)**2) / np.float64(Y.shape[0])
 
 def logistic_mean_func(dot_Xw):
-  exp_Xw = np.exp(-dot_Xw)
-  return 1.0 / (1.0 + exp_Xw)
+  if dot_Xw.shape[1] == 1:
+    exp_Xw = np.exp(-dot_Xw)
+    return 1.0 / (1.0 + exp_Xw)
+  exp_Xw = np.exp(dot_Xw)
+  normalizer = np.sum(exp_Xw, axis=1)[:, np.newaxis]
+  return exp_Xw / normalizer
 
 def logistic_gradient(dot_Xw):
-  exp_Xw = np.exp(-dot_Xw)
-  return exp_Xw / (1.0 + exp_Xw)**2
+  if dot_Xw.shape[1] == 1:
+    exp_Xw = np.exp(-dot_Xw)
+    return exp_Xw / (1.0 + exp_Xw)**2
+  exp_Xw = np.exp(dot_Xw)
+  Z = np.sum(exp_Xw, axis=1)[:, np.nweaxis]
+  exp_Xw /= Z
+  N = dot_Xw.shape[0]
+  K = dot_Xw.shape[1]
+  # (N, K, K) gradient. 
+  return exp_Xw[:,:,np.newaxis] * (np.tile(np.eye(K), (N, 1)).reshape(N, K, K) - exp_Xw[:,np.newaxis,:])
 
 def logistic_potential(dot_Xw):
-  return np.log(1.0 + np.exp(dot_Xw))
+  if dot_Xw.shape[1] == 1:
+    return np.log(1.0 + np.exp(dot_Xw))
+  return np.log(np.sum(np.exp(dot_Xw), axis=1)[:, np.newaxis])
 
 def logistic_lipschitz():
   return 1
@@ -57,6 +72,7 @@ def opt_glm_explicit(X, Y, potential_func, mean_func, mean_lipschitz, w0=None,
   
   has_converge = False
   is_first = True
+  nbr_iter = 0
   while not has_converge:
     dot_Xw = X.dot(w)
     residual = ( mean_func(dot_Xw) - Y ) / nbr_samples 
@@ -66,10 +82,11 @@ def opt_glm_explicit(X, Y, potential_func, mean_func, mean_lipschitz, w0=None,
       objective += l2_lam * np.sum( (w[1:] * w[1:]) ) / 2.0
     else:
       objective += l2_lam * np.sum( (w * w) ) / 2.0
+    #print objective
     if is_first:
       is_first = False
     else:
-      has_converge = abs(last_objective - objective) / np.abs(last_objective) < 1e-5
+      has_converge = abs(last_objective - objective) / np.abs(last_objective) < 1e-5 or last_objective < objective
       if has_converge:
         break
     last_objective = objective
@@ -79,6 +96,8 @@ def opt_glm_explicit(X, Y, potential_func, mean_func, mean_lipschitz, w0=None,
     if intercept:
       regul_delta_w[0] = 0
     w -= delta_w + regul_delta_w
+
+    nbr_iter += 1
 
   return w, -objective 
       
@@ -360,16 +379,17 @@ class ProblemData(object):
       sys.exit(1)
     if b != None and Y == None:
       self.Y = np.zeros((1, b.shape[1]))
+    if Y != None and b == None:
+      self.b = X.T.dot(Y) / np.float64(X.shape[0]) 
     if len(Y.shape) == 1:
       self.nbr_responses = 1
       self.Y.reshape((Y.shape[0], 1))
-      if self.b != None:
-        self.b = self.b.reshape((b.shape[0], 1))
+      self.b = self.b.reshape((b.shape[0], 1))
     else:
       self.nbr_responses = Y.shape[1]
 
     if C_no_regul == None:
-      C_no_regul = self.X.T.dot(X) / np.float64(X.shape[0])
+      C_no_regul = X.T.dot(X) / np.float64(X.shape[0])
       C_no_regul = (C_no_regul.T + C_no_regul) * 0.5
     self.C_no_regul = C_no_regul
 
@@ -467,11 +487,15 @@ class OptSolverLogistic(object):
       dot_Xw = sel_X.dot(model[1:]) + model[0]
     else:
       dot_Xw = sel_X.dot(model)
-    return (data.Y - logistic_mean_func(dot_Xw)) * logistic_gradient(dot_Xw) 
+    # res = (data.Y - logistic_mean_func(dot_Xw)) 
+    # note that each logsitic_gradients is a symmetric KxK, so we use axis=2 or 1.
+    # essenstially each residual apply the KxK linear tansf of gradient.
+    # result is NxK 
+    return np.sum((data.Y - logistic_mean_func(dot_Xw))[:, np.newaxis, :] * logistic_gradient(dot_Xw), axis=2)
 
   def compute_whitened_group_gradient_square(self, grad_proxy, data, sel_g, M):
     b_g = grad_proxy.T.dot(data.X[:,sel_g]) 
-    return np.sum(b_g.dot(M) * b_g) / np.float64(data.n_features())
+    return np.sum((b_g.dot(M)) * b_g) / np.float64(data.n_features())
 
 class OptSolverGLM(object):
   def __init__(self, l2_lam=1e-6, glm_power=4, nbr_responses=1, max_iter=None):
@@ -610,3 +634,56 @@ def all_results(X=None, Y=None,
     ret.append(dict(zip(names, results)))
   # endfor rm 
   return ret 
+
+def regression_fit(X, Y, params, multi_classification=False):
+  if multi_classification:
+    Y = opt_util.label2indvec(Y)
+  if not params.has_key('l2_lam'):
+    l2_lam = 1.0 / np.float64(X.shape[0])
+  else:
+    l2_lam = params['l2_lam']
+
+  rm = 'linear'
+  if params.has_key('r_method'):
+    rm = params['r_method']
+  
+  data = ProblemData(X,Y, l2_lam=l2_lam)
+  if rm == 'linear':
+    problem = OptProblem(data, OptSolverLinear(l2_lam))
+  elif rm == 'logistic':
+    problem = OptProblem(data, OptSolverLogistic(l2_lam))
+  elif rm == 'glm':
+    nbr_responses = data.n_responses()
+    max_iter = None
+    if params.has_key('glm_max_iter'):
+      max_iter = params['glm_max_iter']
+    if params.has_key('glm_power'):
+      glm_power = params['glm_power']
+      problem = OptProblem(data, OptSolverGLM(l2_lam, glm_power, 
+        nbr_responses, max_iter))
+    else:
+      problem = OptProblem(data, OptSolverGLM(l2_lam, 
+        nbr_responses=nbr_responses, max_iter=max_iter)) 
+
+  
+  # training using all features.
+  model, _ = problem.opt_and_score(np.arange(X.shape[1]))
+
+  if rm != 'glm':
+    return (rm, model, multi_classification)
+  return (rm, (model, problem.solver.calib_funcs), multi_classification)
+
+def regression_predict(X, method_model):
+  rm = method_model[0]
+  model = method_model[1]
+  multi_classification = method_model[2]
+  if rm == 'linear':
+    Y_hat = OptSolverLinear.predict(X, model)
+  elif rm == 'logistic':
+    Y_hat = OptSolverLogistic.predict(X, model)
+  elif rm == 'glm':
+    Y_hat = OptSolverGLM.predict(X, model[0], model[1])
+
+  if multi_classification:
+    return opt_util.indvec2label(Y_hat)
+  return Y_hat
