@@ -10,13 +10,13 @@ def doit():
   fn_test = 'toy.valid.txt' #sys.argv[2] #e.g. 
   params={}
   params['l2_lam'] = 1e-6
-  params['regression_methods'] = ['glm']
+  params['regression_methods'] = ['linear']
   params['opt_methods'] = ['OMP']
   params['glm_power'] = 5
   params['glm_max_iter'] = 10
   params['classification'] = True
   params['val_map'] = lambda x: x - 1
-  params['val_map_predict'] = lambda x : (x > 0.5)
+  params['val_map_predict'] = lambda x : ( x > 0.5 )
 
   D.train(fn_trains, params)
   return D.evaluate_multi_files(fn_test, fn_trains, params)

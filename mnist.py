@@ -21,11 +21,10 @@ def doit():
 
   print "finsihed loading"
   
-  lr = sklearn.linear_model.LogisticRegression()
-  lr.fit(X, Y.ravel())
+  lr = sklearn.linear_model.LogisticRegression(C=1.666667)
+  #lr.fit(X, Y.ravel())
+  #print "MAP : %f" %( lr.score(X_test, Y_test.ravel()))
 
-  print "MAP : %f" %( lr.score(X_test, Y_test.ravel()))
-  
   params = {}
   params['l2_lam'] = 1e-5
   params['r_method'] = 'logistic' # 'linear', 'glm'

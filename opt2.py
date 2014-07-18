@@ -20,7 +20,7 @@ def logistic_gradient(dot_Xw):
     exp_Xw = np.exp(-dot_Xw)
     return exp_Xw / (1.0 + exp_Xw)**2
   exp_Xw = np.exp(dot_Xw)
-  Z = np.sum(exp_Xw, axis=1)[:, np.nweaxis]
+  Z = np.sum(exp_Xw, axis=1)[:, np.newaxis]
   exp_Xw /= Z
   N = dot_Xw.shape[0]
   K = dot_Xw.shape[1]
