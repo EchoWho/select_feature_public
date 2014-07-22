@@ -10,7 +10,7 @@ def doit():
   fn_test = 'toy.valid.txt' #sys.argv[2] #e.g. 
   params={}
   params['l2_lam'] = 1e-6
-  params['regression_methods'] = ['linear']
+  params['regression_methods'] = ['logistic']
   params['opt_methods'] = ['OMP']
   params['glm_power'] = 5
   params['glm_max_iter'] = 10

@@ -18,7 +18,7 @@ def logistic_mean_func(dot_Xw):
 def logistic_gradient(dot_Xw):
   if dot_Xw.shape[1] == 1:
     exp_Xw = np.exp(-dot_Xw)
-    return exp_Xw / (1.0 + exp_Xw)**2
+    return (exp_Xw / (1.0 + exp_Xw)**2)[:, np.newaxis, :]
   exp_Xw = np.exp(dot_Xw)
   Z = np.sum(exp_Xw, axis=1)[:, np.newaxis]
   exp_Xw /= Z
@@ -43,14 +43,12 @@ def opt_linear(X,Y,C_inv=None):
     C_inv = np.linalg.pinv(C)
   return C_inv.dot(b)
   
-def opt_glm_explicit(X, Y, potential_func, mean_func, mean_lipschitz, w0=None,
+def opt_glm_explicit(X, Y, potential_func, mean_func, w0=None,
                      intercept=True, C_inv=None, l2_lam=None):
   nbr_samples = np.float64(Y.shape[0])
   nbr_feats = X.shape[1]
-  if len(Y.shape) == 1:
-    Y = Y[:,np.newaxis]
   nbr_responses = Y.shape[1]
-  w_len = nbr_feats + intercept
+  w_len = nbr_feats + np.int32(intercept)
   if l2_lam == None:
     l2_lam = 1e-6
   if C_inv == None:
@@ -64,7 +62,7 @@ def opt_glm_explicit(X, Y, potential_func, mean_func, mean_lipschitz, w0=None,
     C_inv_tmp[1: , 1:] = C_inv
     C_inv = C_inv_tmp
     C_inv[0,0] = 1
-    X = np.hstack([np.ones((nbr_samples, 1)), X])
+    X = np.hstack([np.ones((Y.shape[0], 1)), X])
 
   w = np.zeros((w_len, nbr_responses))
   if w0 != None:
@@ -75,26 +73,28 @@ def opt_glm_explicit(X, Y, potential_func, mean_func, mean_lipschitz, w0=None,
   nbr_iter = 0
   while not has_converge:
     dot_Xw = X.dot(w)
-    residual = ( mean_func(dot_Xw) - Y ) / nbr_samples 
   
     objective = (np.sum(potential_func(dot_Xw)) - np.sum(Y * dot_Xw)) / nbr_samples
     if intercept:
       objective += l2_lam * np.sum( (w[1:] * w[1:]) ) / 2.0
     else:
       objective += l2_lam * np.sum( (w * w) ) / 2.0
-    #print objective
+    print objective
     if is_first:
       is_first = False
     else:
-      has_converge = abs(last_objective - objective) / np.abs(last_objective) < 1e-5 or last_objective < objective
+      has_converge = abs(last_objective - objective) / np.abs(last_objective) < 1e-5
       if has_converge:
         break
     last_objective = objective
 
-    delta_w = (1 / mean_lipschitz) * C_inv.dot(X.T.dot(residual))
+    residual = ( mean_func(dot_Xw) - Y ) / nbr_samples 
+    L_lipschitz = np.max(abs(w)) * l2_lam + 1
+    delta_w = (1 / L_lipschitz) * C_inv.dot(X.T.dot(residual))
     regul_delta_w = w * l2_lam
     if intercept:
       regul_delta_w[0] = 0
+    last_w = w
     w -= delta_w + regul_delta_w
 
     nbr_iter += 1
@@ -469,8 +469,10 @@ class OptSolverLogistic(object):
 
   def opt_and_score(self, data, selected_feats, model0=None):
     return opt_glm_explicit(data.X[:, selected_feats], data.Y, 
-      logistic_potential, logistic_mean_func, logistic_lipschitz(), 
-      w0=model0, intercept=self.intercept, l2_lam=self.l2_lam)
+      logistic_potential, logistic_mean_func,  
+      w0=model0, 
+      C_inv=np.linalg.pinv(data.C[selected_feats[:,np.newaxis], selected_feats]), 
+      intercept=self.intercept, l2_lam=self.l2_lam)
 
   @staticmethod
   def predict(X, model, intercept=True):
@@ -646,6 +648,8 @@ def regression_fit(X, Y, params, multi_classification=False):
   rm = 'linear'
   if params.has_key('r_method'):
     rm = params['r_method']
+
+  print "Y is convereted"
   
   data = ProblemData(X,Y, l2_lam=l2_lam)
   if rm == 'linear':
@@ -666,6 +670,7 @@ def regression_fit(X, Y, params, multi_classification=False):
         nbr_responses=nbr_responses, max_iter=max_iter)) 
 
   
+  print "Set-up finished "
   # training using all features.
   model, _ = problem.opt_and_score(np.arange(X.shape[1]))
 
