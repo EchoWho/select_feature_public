@@ -1,9 +1,13 @@
 import numpy as np
+import numpy
 import time
 import sys
 import functools
 import scipy.linalg
 import opt_util
+import pdb
+import scipy.linalg
+from gtkutils.color_printer import gcp
 
 def square_error(Y_hat, Y):
   return np.sum((Y_hat - Y)**2) / np.float64(Y.shape[0])
@@ -50,12 +54,19 @@ def opt_glm_explicit(X, Y, potential_func, mean_func, w0=None,
   nbr_feats = X.shape[1]
   nbr_responses = Y.shape[1]
   w_len = nbr_feats + np.int32(intercept)
+
+  Y_labels = numpy.argmax(Y, axis = 1)
+  
   if l2_lam == None:
     l2_lam = 1e-6
+
   if C_inv == None:
+
     C_no_regul = X.T.dot(X) / nbr_samples
     C_no_regul = (C_no_regul + C_no_regul.T) / 2.0
+
     C = C_no_regul + np.eye(C_no_regul.shape[0]) * l2_lam
+
     C_inv = np.linalg.pinv(C)
 
   if intercept:
@@ -70,9 +81,10 @@ def opt_glm_explicit(X, Y, potential_func, mean_func, w0=None,
     w[:w0.shape[0]] = w0
   
   has_converge = False
-  is_first = True
-  nbr_iter = 0
-  while not has_converge:
+  nbr_iter = -1
+  beta = 0.8
+  while True:
+    nbr_iter += 1
     dot_Xw = X.dot(w)
   
     objective = (np.sum(potential_func(dot_Xw)) - np.sum(Y * dot_Xw)) / nbr_samples
@@ -80,29 +92,31 @@ def opt_glm_explicit(X, Y, potential_func, mean_func, w0=None,
       objective += l2_lam * np.sum( (w[1:] * w[1:]) ) / 2.0
     else:
       objective += l2_lam * np.sum( (w * w) ) / 2.0
-    print objective
-    if is_first:
-      is_first = False
-    else:
-      has_converge = abs(last_objective - objective) / np.abs(last_objective) < 1e-5
+    gcp.info("iteration: {}. objective: {}".format(nbr_iter, objective))
+
+    if nbr_iter > 0:
+      conv_num = abs(last_objective - objective) / np.abs(last_objective) 
+      gcp.info("conv num: {}".format(conv_num))
+      has_converge = conv_num < 1e-5
       if has_converge:
         break
       if last_objective < objective:
-        w = last_w
-        objective = last_objective
-        break
-    last_objective = objective
+        gcp.info("iteration: {}. Step size was too large. Shrinking!!!")
+        total_delta_w *= beta
+        w = last_w - total_delta_w
+        continue
 
-    residual = ( mean_func(dot_Xw) - Y ) / nbr_samples 
+    last_objective = objective
+    pred = mean_func(dot_Xw)
+    residual = (pred  - Y) / nbr_samples 
     L_lipschitz = np.max(abs(w)) * l2_lam + 1
     delta_w = (1 / L_lipschitz) * C_inv.dot(X.T.dot(residual))
     regul_delta_w = w * l2_lam
     if intercept:
       regul_delta_w[0] = 0
     last_w = w
-    w -= delta_w + regul_delta_w
-
-    nbr_iter += 1
+    total_delta_w = delta_w + regul_delta_w
+    w -= total_delta_w
 
   return w, -objective 
       
@@ -473,11 +487,12 @@ class OptSolverLogistic(object):
     self.intercept = intercept
 
   def opt_and_score(self, data, selected_feats, model0=None):
+    C_inv = gcp.gtime(scipy.linalg.inv, data.C[selected_feats[:,np.newaxis], selected_feats])
     return opt_glm_explicit(data.X[:, selected_feats], data.Y, 
-      logistic_potential, logistic_mean_func,  
-      w0=model0, 
-      C_inv=scipy.linalg.inv(data.C[selected_feats[:,np.newaxis], selected_feats]), 
-      intercept=self.intercept, l2_lam=self.l2_lam)
+                            logistic_potential, logistic_mean_func,  
+                            w0=model0, 
+                            C_inv=C_inv,
+                            intercept=self.intercept, l2_lam=self.l2_lam)
 
   @staticmethod
   def predict(X, model, intercept=True):

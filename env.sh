@@ -12,6 +12,5 @@ pypathadd() {
     fi
 }
 
-export SFP_ROOT=$CURRENT_DIR
-pypathadd $SFP_ROOT/
-
+export LIBSF_ROOT=$CURRENT_DIR
+pypathadd $LIBSF_ROOT
