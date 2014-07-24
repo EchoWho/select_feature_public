@@ -14,4 +14,3 @@ pypathadd() {
 
 export LIBSF_ROOT=$CURRENT_DIR
 pypathadd $LIBSF_ROOT
-

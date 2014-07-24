@@ -3,6 +3,7 @@ import numpy
 import time
 import sys
 import functools
+import scipy.linalg
 import opt_util
 import pdb
 import scipy.linalg
@@ -80,39 +81,42 @@ def opt_glm_explicit(X, Y, potential_func, mean_func, w0=None,
     w[:w0.shape[0]] = w0
   
   has_converge = False
-  nbr_iter = 0
-
-  while not has_converge:
+  nbr_iter = -1
+  beta = 0.8
+  while True:
+    nbr_iter += 1
     dot_Xw = X.dot(w)
-    pred = mean_func(dot_Xw)
   
     objective = (np.sum(potential_func(dot_Xw)) - np.sum(Y * dot_Xw)) / nbr_samples
     if intercept:
       objective += l2_lam * np.sum( (w[1:] * w[1:]) ) / 2.0
     else:
       objective += l2_lam * np.sum( (w * w) ) / 2.0
+    gcp.info("iteration: {}. objective: {}".format(nbr_iter, objective))
+
     if nbr_iter > 0:
       conv_num = abs(last_objective - objective) / np.abs(last_objective) 
       gcp.info("conv num: {}".format(conv_num))
       has_converge = conv_num < 1e-5
       if has_converge:
         break
+      if last_objective < objective:
+        gcp.info("iteration: {}. Step size was too large. Shrinking!!!")
+        total_delta_w *= beta
+        w = last_w - total_delta_w
+        continue
 
-    Y_pred = numpy.argmax(pred, axis = 1)
-    err =  (Y_pred != Y_labels).sum() / float(Y_labels.shape[0])
-    gcp.info("iteration: {}. objective: {}, error: {}".format(nbr_iter, objective, err))
     last_objective = objective
-
-    residual = (pred  - Y ) / nbr_samples 
+    pred = mean_func(dot_Xw)
+    residual = (pred  - Y) / nbr_samples 
     L_lipschitz = np.max(abs(w)) * l2_lam + 1
     delta_w = (1 / L_lipschitz) * C_inv.dot(X.T.dot(residual))
     regul_delta_w = w * l2_lam
     if intercept:
       regul_delta_w[0] = 0
     last_w = w
-    w -= delta_w + regul_delta_w
-
-    nbr_iter += 1
+    total_delta_w = delta_w + regul_delta_w
+    w -= total_delta_w
 
   return w, -objective 
       
@@ -483,9 +487,7 @@ class OptSolverLogistic(object):
     self.intercept = intercept
 
   def opt_and_score(self, data, selected_feats, model0=None):
-
     C_inv = gcp.gtime(scipy.linalg.inv, data.C[selected_feats[:,np.newaxis], selected_feats])
-
     return opt_glm_explicit(data.X[:, selected_feats], data.Y, 
                             logistic_potential, logistic_mean_func,  
                             w0=model0, 
@@ -658,6 +660,7 @@ def all_results(X=None, Y=None,
 def regression_fit(X, Y, params, multi_classification=False):
   if multi_classification:
     Y = opt_util.label2indvec(Y)
+    print "Y is converted to one-hot"
   if not params.has_key('l2_lam'):
     l2_lam = 1.0 / np.float64(X.shape[0])
   else:
@@ -667,8 +670,6 @@ def regression_fit(X, Y, params, multi_classification=False):
   if params.has_key('r_method'):
     rm = params['r_method']
 
-  print "Y is convereted"
-  
   data = ProblemData(X,Y, l2_lam=l2_lam)
   if rm == 'linear':
     problem = OptProblem(data, OptSolverLinear(l2_lam))
@@ -687,7 +688,6 @@ def regression_fit(X, Y, params, multi_classification=False):
       problem = OptProblem(data, OptSolverGLM(l2_lam, 
         nbr_responses=nbr_responses, max_iter=max_iter)) 
 
-  
   print "Set-up finished "
   # training using all features.
   model, _ = problem.opt_and_score(np.arange(X.shape[1]))
