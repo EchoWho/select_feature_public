@@ -1,21 +1,40 @@
 import numpy as np
+import numpy
 import time
 import sys
 import functools
+import opt_util
+import pdb
+import scipy.linalg
+from gtkutils.color_printer import gcp
 
 def square_error(Y_hat, Y):
   return np.sum((Y_hat - Y)**2) / np.float64(Y.shape[0])
 
 def logistic_mean_func(dot_Xw):
-  exp_Xw = np.exp(-dot_Xw)
-  return 1.0 / (1.0 + exp_Xw)
+  if dot_Xw.shape[1] == 1:
+    exp_Xw = np.exp(-dot_Xw)
+    return 1.0 / (1.0 + exp_Xw)
+  exp_Xw = np.exp(dot_Xw)
+  normalizer = np.sum(exp_Xw, axis=1)[:, np.newaxis]
+  return exp_Xw / normalizer
 
 def logistic_gradient(dot_Xw):
-  exp_Xw = np.exp(-dot_Xw)
-  return exp_Xw / (1.0 + exp_Xw)**2
+  if dot_Xw.shape[1] == 1:
+    exp_Xw = np.exp(-dot_Xw)
+    return (exp_Xw / (1.0 + exp_Xw)**2)[:, np.newaxis, :]
+  exp_Xw = np.exp(dot_Xw)
+  Z = np.sum(exp_Xw, axis=1)[:, np.newaxis]
+  exp_Xw /= Z
+  N = dot_Xw.shape[0]
+  K = dot_Xw.shape[1]
+  # (N, K, K) gradient. 
+  return exp_Xw[:,:,np.newaxis] * (np.tile(np.eye(K), (N, 1)).reshape(N, K, K) - exp_Xw[:,np.newaxis,:])
 
 def logistic_potential(dot_Xw):
-  return np.log(1.0 + np.exp(dot_Xw))
+  if dot_Xw.shape[1] == 1:
+    return np.log(1.0 + np.exp(dot_Xw))
+  return np.log(np.sum(np.exp(dot_Xw), axis=1)[:, np.newaxis])
 
 def logistic_lipschitz():
   return 1
@@ -28,20 +47,25 @@ def opt_linear(X,Y,C_inv=None):
     C_inv = np.linalg.pinv(C)
   return C_inv.dot(b)
   
-def opt_glm_explicit(X, Y, potential_func, mean_func, mean_lipschitz, w0=None,
+def opt_glm_explicit(X, Y, potential_func, mean_func, w0=None,
                      intercept=True, C_inv=None, l2_lam=None):
   nbr_samples = np.float64(Y.shape[0])
   nbr_feats = X.shape[1]
-  if len(Y.shape) == 1:
-    Y = Y[:,np.newaxis]
   nbr_responses = Y.shape[1]
-  w_len = nbr_feats + intercept
+  w_len = nbr_feats + np.int32(intercept)
+
+  Y_labels = numpy.argmax(Y, axis = 1)
+  
   if l2_lam == None:
     l2_lam = 1e-6
+
   if C_inv == None:
+
     C_no_regul = X.T.dot(X) / nbr_samples
     C_no_regul = (C_no_regul + C_no_regul.T) / 2.0
+
     C = C_no_regul + np.eye(C_no_regul.shape[0]) * l2_lam
+
     C_inv = np.linalg.pinv(C)
 
   if intercept:
@@ -49,36 +73,46 @@ def opt_glm_explicit(X, Y, potential_func, mean_func, mean_lipschitz, w0=None,
     C_inv_tmp[1: , 1:] = C_inv
     C_inv = C_inv_tmp
     C_inv[0,0] = 1
-    X = np.hstack([np.ones((nbr_samples, 1)), X])
+    X = np.hstack([np.ones((Y.shape[0], 1)), X])
 
   w = np.zeros((w_len, nbr_responses))
   if w0 != None:
     w[:w0.shape[0]] = w0
   
   has_converge = False
-  is_first = True
+  nbr_iter = 0
+
   while not has_converge:
     dot_Xw = X.dot(w)
-    residual = ( mean_func(dot_Xw) - Y ) / nbr_samples 
+    pred = mean_func(dot_Xw)
   
     objective = (np.sum(potential_func(dot_Xw)) - np.sum(Y * dot_Xw)) / nbr_samples
     if intercept:
       objective += l2_lam * np.sum( (w[1:] * w[1:]) ) / 2.0
     else:
       objective += l2_lam * np.sum( (w * w) ) / 2.0
-    if is_first:
-      is_first = False
-    else:
-      has_converge = abs(last_objective - objective) / np.abs(last_objective) < 1e-5
+    if nbr_iter > 0:
+      conv_num = abs(last_objective - objective) / np.abs(last_objective) 
+      gcp.info("conv num: {}".format(conv_num))
+      has_converge = conv_num < 1e-5
       if has_converge:
         break
+
+    Y_pred = numpy.argmax(pred, axis = 1)
+    err =  (Y_pred != Y_labels).sum() / float(Y_labels.shape[0])
+    gcp.info("iteration: {}. objective: {}, error: {}".format(nbr_iter, objective, err))
     last_objective = objective
 
-    delta_w = (1 / mean_lipschitz) * C_inv.dot(X.T.dot(residual))
+    residual = (pred  - Y ) / nbr_samples 
+    L_lipschitz = np.max(abs(w)) * l2_lam + 1
+    delta_w = (1 / L_lipschitz) * C_inv.dot(X.T.dot(residual))
     regul_delta_w = w * l2_lam
     if intercept:
       regul_delta_w[0] = 0
+    last_w = w
     w -= delta_w + regul_delta_w
+
+    nbr_iter += 1
 
   return w, -objective 
       
@@ -360,16 +394,17 @@ class ProblemData(object):
       sys.exit(1)
     if b != None and Y == None:
       self.Y = np.zeros((1, b.shape[1]))
+    if Y != None and b == None:
+      self.b = X.T.dot(Y) / np.float64(X.shape[0]) 
     if len(Y.shape) == 1:
       self.nbr_responses = 1
       self.Y.reshape((Y.shape[0], 1))
-      if self.b != None:
-        self.b = self.b.reshape((b.shape[0], 1))
+      self.b = self.b.reshape((b.shape[0], 1))
     else:
       self.nbr_responses = Y.shape[1]
 
     if C_no_regul == None:
-      C_no_regul = self.X.T.dot(X) / np.float64(X.shape[0])
+      C_no_regul = X.T.dot(X) / np.float64(X.shape[0])
       C_no_regul = (C_no_regul.T + C_no_regul) * 0.5
     self.C_no_regul = C_no_regul
 
@@ -448,9 +483,14 @@ class OptSolverLogistic(object):
     self.intercept = intercept
 
   def opt_and_score(self, data, selected_feats, model0=None):
+
+    C_inv = gcp.gtime(scipy.linalg.inv, data.C[selected_feats[:,np.newaxis], selected_feats])
+
     return opt_glm_explicit(data.X[:, selected_feats], data.Y, 
-      logistic_potential, logistic_mean_func, logistic_lipschitz(), 
-      w0=model0, intercept=self.intercept, l2_lam=self.l2_lam)
+                            logistic_potential, logistic_mean_func,  
+                            w0=model0, 
+                            C_inv=C_inv,
+                            intercept=self.intercept, l2_lam=self.l2_lam)
 
   @staticmethod
   def predict(X, model, intercept=True):
@@ -467,11 +507,15 @@ class OptSolverLogistic(object):
       dot_Xw = sel_X.dot(model[1:]) + model[0]
     else:
       dot_Xw = sel_X.dot(model)
-    return (data.Y - logistic_mean_func(dot_Xw)) * logistic_gradient(dot_Xw) 
+    # res = (data.Y - logistic_mean_func(dot_Xw)) 
+    # note that each logsitic_gradients is a symmetric KxK, so we use axis=2 or 1.
+    # essenstially each residual apply the KxK linear tansf of gradient.
+    # result is NxK 
+    return np.sum((data.Y - logistic_mean_func(dot_Xw))[:, np.newaxis, :] * logistic_gradient(dot_Xw), axis=2)
 
   def compute_whitened_group_gradient_square(self, grad_proxy, data, sel_g, M):
     b_g = grad_proxy.T.dot(data.X[:,sel_g]) 
-    return np.sum(b_g.dot(M) * b_g) / np.float64(data.n_features())
+    return np.sum((b_g.dot(M)) * b_g) / np.float64(data.n_features())
 
 class OptSolverGLM(object):
   def __init__(self, l2_lam=1e-6, glm_power=4, nbr_responses=1, max_iter=None):
@@ -610,3 +654,59 @@ def all_results(X=None, Y=None,
     ret.append(dict(zip(names, results)))
   # endfor rm 
   return ret 
+
+def regression_fit(X, Y, params, multi_classification=False):
+  if multi_classification:
+    Y = opt_util.label2indvec(Y)
+  if not params.has_key('l2_lam'):
+    l2_lam = 1.0 / np.float64(X.shape[0])
+  else:
+    l2_lam = params['l2_lam']
+
+  rm = 'linear'
+  if params.has_key('r_method'):
+    rm = params['r_method']
+
+  print "Y is convereted"
+  
+  data = ProblemData(X,Y, l2_lam=l2_lam)
+  if rm == 'linear':
+    problem = OptProblem(data, OptSolverLinear(l2_lam))
+  elif rm == 'logistic':
+    problem = OptProblem(data, OptSolverLogistic(l2_lam))
+  elif rm == 'glm':
+    nbr_responses = data.n_responses()
+    max_iter = None
+    if params.has_key('glm_max_iter'):
+      max_iter = params['glm_max_iter']
+    if params.has_key('glm_power'):
+      glm_power = params['glm_power']
+      problem = OptProblem(data, OptSolverGLM(l2_lam, glm_power, 
+        nbr_responses, max_iter))
+    else:
+      problem = OptProblem(data, OptSolverGLM(l2_lam, 
+        nbr_responses=nbr_responses, max_iter=max_iter)) 
+
+  
+  print "Set-up finished "
+  # training using all features.
+  model, _ = problem.opt_and_score(np.arange(X.shape[1]))
+
+  if rm != 'glm':
+    return (rm, model, multi_classification)
+  return (rm, (model, problem.solver.calib_funcs), multi_classification)
+
+def regression_predict(X, method_model):
+  rm = method_model[0]
+  model = method_model[1]
+  multi_classification = method_model[2]
+  if rm == 'linear':
+    Y_hat = OptSolverLinear.predict(X, model)
+  elif rm == 'logistic':
+    Y_hat = OptSolverLogistic.predict(X, model)
+  elif rm == 'glm':
+    Y_hat = OptSolverGLM.predict(X, model[0], model[1])
+
+  if multi_classification:
+    return opt_util.indvec2label(Y_hat)
+  return Y_hat
