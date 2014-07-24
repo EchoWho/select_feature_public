@@ -2,6 +2,7 @@ import numpy as np
 import time
 import sys
 import functools
+import scipy.linalg
 import opt_util
 
 def square_error(Y_hat, Y):
@@ -85,6 +86,10 @@ def opt_glm_explicit(X, Y, potential_func, mean_func, w0=None,
     else:
       has_converge = abs(last_objective - objective) / np.abs(last_objective) < 1e-5
       if has_converge:
+        break
+      if last_objective < objective:
+        w = last_w
+        objective = last_objective
         break
     last_objective = objective
 
@@ -471,7 +476,7 @@ class OptSolverLogistic(object):
     return opt_glm_explicit(data.X[:, selected_feats], data.Y, 
       logistic_potential, logistic_mean_func,  
       w0=model0, 
-      C_inv=np.linalg.pinv(data.C[selected_feats[:,np.newaxis], selected_feats]), 
+      C_inv=scipy.linalg.inv(data.C[selected_feats[:,np.newaxis], selected_feats]), 
       intercept=self.intercept, l2_lam=self.l2_lam)
 
   @staticmethod
@@ -640,6 +645,7 @@ def all_results(X=None, Y=None,
 def regression_fit(X, Y, params, multi_classification=False):
   if multi_classification:
     Y = opt_util.label2indvec(Y)
+    print "Y is converted to one-hot"
   if not params.has_key('l2_lam'):
     l2_lam = 1.0 / np.float64(X.shape[0])
   else:
@@ -649,8 +655,6 @@ def regression_fit(X, Y, params, multi_classification=False):
   if params.has_key('r_method'):
     rm = params['r_method']
 
-  print "Y is convereted"
-  
   data = ProblemData(X,Y, l2_lam=l2_lam)
   if rm == 'linear':
     problem = OptProblem(data, OptSolverLinear(l2_lam))
@@ -669,7 +673,6 @@ def regression_fit(X, Y, params, multi_classification=False):
       problem = OptProblem(data, OptSolverGLM(l2_lam, 
         nbr_responses=nbr_responses, max_iter=max_iter)) 
 
-  
   print "Set-up finished "
   # training using all features.
   model, _ = problem.opt_and_score(np.arange(X.shape[1]))

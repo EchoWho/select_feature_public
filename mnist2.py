@@ -6,7 +6,7 @@ import opt_util
 
 def doit():
 
-  D = dataset2.Dataset('mnist_data', 'mnist_results', 'fake_group_info.npz')
+  D = dataset2.Dataset('mnist_data', 'mnist_results', 'fake_group_info_small.npz')
   fn_trains = 'train719.txt' #sys.argv[1] #e.g. 
   fn_test = 'test719.txt' #sys.argv[2] #e.g. 
   params={}
