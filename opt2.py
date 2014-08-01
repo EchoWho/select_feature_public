@@ -93,15 +93,18 @@ def opt_glm_explicit(X, Y, potential_func, mean_func, w0=None,
     else:
       objective += l2_lam * np.sum( (w * w) ) / 2.0
     gcp.info("iteration: {}. objective: {}".format(nbr_iter, objective))
+    #print "iteration: {}. objective: {}".format(nbr_iter, objective)
 
     if nbr_iter > 0:
       conv_num = abs(last_objective - objective) / np.abs(last_objective) 
       gcp.info("conv num: {}".format(conv_num))
+      #print "conv num: {}".format(conv_num)
       has_converge = conv_num < 1e-5
       if has_converge:
         break
       if last_objective < objective:
         gcp.info("iteration: {}. Step size was too large. Shrinking!!!")
+        #print "iteration: {}. Step size was too large. Shrinking!!!"
         total_delta_w *= beta
         w = last_w - total_delta_w
         continue
