@@ -110,6 +110,8 @@ def opt_glm_explicit(X, Y, potential_func, mean_func, w0=None,
         continue
 
     last_objective = objective
+    last_w = w.copy()
+
     pred = mean_func(dot_Xw)
     residual = (pred  - Y) / nbr_samples 
     L_lipschitz = np.max(abs(w)) * l2_lam + 1
@@ -117,7 +119,6 @@ def opt_glm_explicit(X, Y, potential_func, mean_func, w0=None,
     regul_delta_w = w * l2_lam
     if intercept:
       regul_delta_w[0] = 0
-    last_w = w
     total_delta_w = delta_w + regul_delta_w
     w -= total_delta_w
 
