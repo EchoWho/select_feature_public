@@ -304,7 +304,8 @@ def alg_forward(problem, K=None, costs=None, groups=None):
       feats_g = problem.data.vec_feats_g[g]
       sel_feats_end = best_feats_end + feats_g.shape[0]
       best_feats[best_feats_end:sel_feats_end] = feats_g
-      model, score = problem.opt_and_score(best_feats[:sel_feats_end], last_model)
+      #model, score = problem.opt_and_score(best_feats[:sel_feats_end], last_model)
+      model, score = problem.opt_and_score(best_feats[:sel_feats_end])
       gain = (score - last_score) / costs[g]
 
       if (gain > best_gain):
@@ -375,7 +376,8 @@ def alg_omp(problem, K=None, costs=None, groups=None):
     best_feats[best_feats_end:sel_feats_end] = feats_g
     best_feats_end = sel_feats_end
 
-    last_model, best_score = problem.opt_and_score(best_feats[:best_feats_end], last_model) 
+    #last_model, best_score = problem.opt_and_score(best_feats[:best_feats_end], last_model) 
+    last_model, best_score = problem.opt_and_score(best_feats[:best_feats_end]) 
     c = np.sum(costs[best_groups])
 
     #print best_score

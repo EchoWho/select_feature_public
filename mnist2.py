@@ -6,9 +6,9 @@ import opt_util
 
 def doit():
 
-  D = dataset2.Dataset('mnist_data', 'mnist_results', 'fake_group_info_small.npz')
-  fn_trains = 'train719.txt' #sys.argv[1] #e.g. 
-  fn_test = 'test719.txt' #sys.argv[2] #e.g. 
+  D = dataset2.Dataset('mnist_data', 'mnist_results', 'group_info_724.npz')
+  fn_trains = 'train724.txt' #sys.argv[1] #e.g. 
+  fn_test = 'test724.txt' #sys.argv[2] #e.g. 
   params={}
   params['l2_lam'] = 1e-5
   params['regression_methods'] = ['logistic']
