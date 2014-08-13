@@ -93,20 +93,25 @@ def opt_glm_explicit(X, Y, potential_func, mean_func, w0=None,
     else:
       objective += l2_lam * np.sum( (w * w) ) / 2.0
     gcp.info("iteration: {}. objective: {}".format(nbr_iter, objective))
+    #print "iteration: {}. objective: {}".format(nbr_iter, objective)
 
     if nbr_iter > 0:
       conv_num = abs(last_objective - objective) / np.abs(last_objective) 
       gcp.info("conv num: {}".format(conv_num))
+      #print "conv num: {}".format(conv_num)
       has_converge = conv_num < 1e-5
       if has_converge:
         break
       if last_objective < objective:
-        gcp.info("iteration: {}. Step size was too large. Shrinking!!!")
+        gcp.info("iteration: {}. Step size was too large. Shrinking!!!".format(nbr_iter))
+        #print "iteration: {}. Step size was too large. Shrinking!!!"
         total_delta_w *= beta
         w = last_w - total_delta_w
         continue
 
     last_objective = objective
+    last_w = w.copy()
+
     pred = mean_func(dot_Xw)
     residual = (pred  - Y) / nbr_samples 
     L_lipschitz = np.max(abs(w)) * l2_lam + 1
@@ -114,7 +119,6 @@ def opt_glm_explicit(X, Y, potential_func, mean_func, w0=None,
     regul_delta_w = w * l2_lam
     if intercept:
       regul_delta_w[0] = 0
-    last_w = w
     total_delta_w = delta_w + regul_delta_w
     w -= total_delta_w
 
