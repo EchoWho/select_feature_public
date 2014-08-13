@@ -48,6 +48,14 @@ def opt_linear(X,Y,C_inv=None):
     C_inv = np.linalg.pinv(C)
   return C_inv.dot(b)
   
+# X : (N, D)
+# Y : (N, K)
+# potential_func : (N, K) -> (N, 1) // part of the objective
+# mean_func : (N, K) -> (N, K)   // gradient of the potential and E[Y | X] = mean(X dot w) 
+# w0 : (D, K)   // warm start weight vector for( X dot w)
+# C_inv : // inverse of X.T.dot(X). 
+#
+# Typical use: logistic regression
 def opt_glm_explicit(X, Y, potential_func, mean_func, w0=None,
                      intercept=True, C_inv=None, l2_lam=None):
   nbr_samples = np.float64(Y.shape[0])
@@ -55,18 +63,13 @@ def opt_glm_explicit(X, Y, potential_func, mean_func, w0=None,
   nbr_responses = Y.shape[1]
   w_len = nbr_feats + np.int32(intercept)
 
-  Y_labels = numpy.argmax(Y, axis = 1)
-  
   if l2_lam == None:
     l2_lam = 1e-6
 
   if C_inv == None:
-
     C_no_regul = X.T.dot(X) / nbr_samples
     C_no_regul = (C_no_regul + C_no_regul.T) / 2.0
-
     C = C_no_regul + np.eye(C_no_regul.shape[0]) * l2_lam
-
     C_inv = np.linalg.pinv(C)
 
   if intercept:
@@ -93,18 +96,15 @@ def opt_glm_explicit(X, Y, potential_func, mean_func, w0=None,
     else:
       objective += l2_lam * np.sum( (w * w) ) / 2.0
     gcp.info("iteration: {}. objective: {}".format(nbr_iter, objective))
-    #print "iteration: {}. objective: {}".format(nbr_iter, objective)
 
     if nbr_iter > 0:
       conv_num = abs(last_objective - objective) / np.abs(last_objective) 
       gcp.info("conv num: {}".format(conv_num))
-      #print "conv num: {}".format(conv_num)
       has_converge = conv_num < 1e-5
       if has_converge:
         break
       if last_objective < objective:
         gcp.info("iteration: {}. Step size was too large. Shrinking!!!")
-        #print "iteration: {}. Step size was too large. Shrinking!!!"
         total_delta_w *= beta
         w = last_w - total_delta_w
         continue
@@ -124,6 +124,10 @@ def opt_glm_explicit(X, Y, potential_func, mean_func, w0=None,
 
   return w, -objective 
       
+# X : (N,D)
+# Y : (N,K)
+# calib_funcs : [ (N, K) -> (N, K) ]  // a list of "mean functions" that are to be linear combined 
+#               to form the final prediction function 
 def opt_glm_implicit(X, Y, calib_funcs, max_iter=None, intercept=True, C_inv=None, l2_lam=None):
   nbr_calib_funcs = len(calib_funcs)
   nbr_samples = np.float64(Y.shape[0])
@@ -158,17 +162,18 @@ def opt_glm_implicit(X, Y, calib_funcs, max_iter=None, intercept=True, C_inv=Non
   is_first = True
   iter_idx = 0
   while (not has_converge) and (max_iter == None or iter_idx < max_iter):
+    # Linear fit residual
     w = opt_linear(X, Y-Y_hat, C_inv)
     vec_w.append(w)
     Y_tilt = Y_hat + X.dot(w)
     
-    G_Y_tilt = np.array([ f(Y_tilt).ravel() for f in calib_funcs ])
-    psuedo_fubini = G_Y_tilt.dot(G_Y_tilt.T)
-    psuedo_fubini_Y = G_Y_tilt.dot(Y.ravel())
-    w_tilt = np.linalg.pinv(psuedo_fubini).dot(psuedo_fubini_Y)
+    # linear fit target Y with current predictions cailb_func(Y_tilt) 
+    G_Y_tilt = np.array([ f(Y_tilt).ravel() for f in calib_funcs ]).T
+    w_tilt, _, _, _ = np.linalg.lstsq(G_Y_tilt, Y.ravel())
     vec_w_tilt.append(w_tilt) 
-    Y_hat = G_Y_tilt.T.dot(w_tilt).T.reshape(Y.shape)
+    Y_hat = G_Y_tilt.dot(w_tilt).reshape(Y.shape)
 
+    # Use square loss to determine convergence
     loss = np.sum((Y_hat - Y)**2) / nbr_samples
     if is_first:
       loss_init = np.sum(Y**2) / nbr_samples
