@@ -104,7 +104,7 @@ def opt_glm_explicit(X, Y, potential_func, mean_func, w0=None,
       if has_converge:
         break
       if last_objective < objective:
-        gcp.info("iteration: {}. Step size was too large. Shrinking!!!")
+        gcp.info("iteration: {}. Step size was too large. Shrinking!!!".format(nbr_iter))
         total_delta_w *= beta
         w = last_w - total_delta_w
         continue
