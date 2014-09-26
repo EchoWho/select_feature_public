@@ -12,7 +12,7 @@ def doit():
   params={}
   params['l2_lam'] = 1e-5
   params['regression_methods'] = ['logistic']
-  params['opt_methods'] = ['OMP']
+  params['opt_methods'] = ['OMP', 'OMP_stacked']
   params['glm_power'] = 5
   params['glm_max_iter'] = 10
   params['classification'] = True
@@ -24,4 +24,5 @@ def doit():
     
 
 if __name__ == "__main__":
-  doit()
+  ret = doit()
+  np.savez('grain_results/grain2.py.results.9.26.py', ret=ret)

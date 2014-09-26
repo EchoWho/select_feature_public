@@ -34,18 +34,16 @@ class Dataset(object):
     std_X = np.std(X_all, axis=0)
     std_X += std_X == 0
     X = (X_all - m_X) / std_X
-    #Y = (Y_all - m_Y)
     Y = Y_all
 
-    b = X.T.dot(Y) / X.shape[0]
-    C_no_regul = X.T.dot(X) / X.shape[0]
-    C_no_regul = (C_no_regul+C_no_regul.T) / 2
-    C_no_regul += np.eye(C_no_regul.shape[0]) * 1e-10
+    # 9/22/2014 comment out for interface change (b, C are computed in ProbData init)
+    #b = X.T.dot(Y) / X.shape[0]
+    #C_no_regul = X.T.dot(X) / X.shape[0]
+    #C_no_regul = (C_no_regul+C_no_regul.T) / 2
+    #C_no_regul += np.eye(C_no_regul.shape[0]) * 1e-10
 
-    np.savez(self.filename_preprocess_info(fn_trains), m_X=m_X, m_Y=m_Y,
-             std_X=std_X, b=b, C_no_regul=C_no_regul)
-
-    return X, Y, b, C_no_regul, m_X, m_Y, std_X
+    np.savez(self.filename_preprocess_info(fn_trains), m_X=m_X, m_Y=m_Y, std_X=std_X)
+    return X, Y, m_X, m_Y, std_X
 
   def preprocess_data(self, X_raw, Y_raw, fn_trains):
     d = np.load(self.filename_preprocess_info(fn_trains))
@@ -60,10 +58,10 @@ class Dataset(object):
     print "Load and pretrain"
     if not params.has_key('val_map'):
       params['val_map'] = None
-    X_tra, Y_tra, b, C_no_regul, m_X, m_Y, std_X = self.pretrain(fn_trains, params)
+    X_tra, Y_tra, m_X, m_Y, std_X = self.pretrain(fn_trains, params)
     print "finished loading"
 
-    all_results = opt2.all_results(X_tra, Y_tra, b, C_no_regul,
+    all_results = opt2.all_results(X_tra, Y_tra,
       costs=self.costs, groups=self.groups,
       l2_lam=params['l2_lam'], 
       regression_methods=params['regression_methods'],

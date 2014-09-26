@@ -36,3 +36,13 @@ def ndcg_overall(Y_hat, Y, query_starts, top=5):
   return  np.mean([ndcg(Y_hat[query_starts[i]:query_starts[i+1]], 
                         Y[query_starts[i]:query_starts[i+1]], top)  for i in range(L)])
     
+
+def generate_chunks(N, k, complement=True):
+  a = list(range(N))
+  chunk_size = N / k
+  chunks =  np.array(zip(*[iter(a)]*chunk_size))
+  
+  c_chunks = np.zeros((k, chunk_size * (k-1)))
+  for i in range(k):
+    c_chunks[i, :] = np.hstack([ chunk for ci, chunk in enumerate(chunks) if ci != i])
+  return chunks, c_chunks
