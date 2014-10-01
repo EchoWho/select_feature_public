@@ -48,6 +48,14 @@ def opt_linear(X,Y,C_inv=None):
     C_inv = np.linalg.pinv(C)
   return C_inv.dot(b)
   
+# X : (N, D)
+# Y : (N, K)
+# potential_func : (N, K) -> (N, 1) // part of the objective
+# mean_func : (N, K) -> (N, K)   // gradient of the potential and E[Y | X] = mean(X dot w) 
+# w0 : (D, K)   // warm start weight vector for( X dot w)
+# C_inv : // inverse of X.T.dot(X). 
+#
+# Typical use: logistic regression
 def opt_glm_explicit(X, Y, potential_func, mean_func, w0=None,
                      intercept=True, C_inv=None, l2_lam=None):
   nbr_samples = np.float64(Y.shape[0])
@@ -55,18 +63,13 @@ def opt_glm_explicit(X, Y, potential_func, mean_func, w0=None,
   nbr_responses = Y.shape[1]
   w_len = nbr_feats + np.int32(intercept)
 
-  Y_labels = numpy.argmax(Y, axis = 1)
-  
   if l2_lam == None:
     l2_lam = 1e-6
 
   if C_inv == None:
-
     C_no_regul = X.T.dot(X) / nbr_samples
     C_no_regul = (C_no_regul + C_no_regul.T) / 2.0
-
     C = C_no_regul + np.eye(C_no_regul.shape[0]) * l2_lam
-
     C_inv = np.linalg.pinv(C)
 
   if intercept:
@@ -93,18 +96,15 @@ def opt_glm_explicit(X, Y, potential_func, mean_func, w0=None,
     else:
       objective += l2_lam * np.sum( (w * w) ) / 2.0
     gcp.info("iteration: {}. objective: {}".format(nbr_iter, objective))
-    #print "iteration: {}. objective: {}".format(nbr_iter, objective)
 
     if nbr_iter > 0:
       conv_num = abs(last_objective - objective) / np.abs(last_objective) 
       gcp.info("conv num: {}".format(conv_num))
-      #print "conv num: {}".format(conv_num)
       has_converge = conv_num < 1e-5
       if has_converge:
         break
       if last_objective < objective:
         gcp.info("iteration: {}. Step size was too large. Shrinking!!!".format(nbr_iter))
-        #print "iteration: {}. Step size was too large. Shrinking!!!"
         total_delta_w *= beta
         w = last_w - total_delta_w
         continue
@@ -124,6 +124,10 @@ def opt_glm_explicit(X, Y, potential_func, mean_func, w0=None,
 
   return w, -objective 
       
+# X : (N,D)
+# Y : (N,K)
+# calib_funcs : [ (N, K) -> (N, K) ]  // a list of "mean functions" that are to be linear combined 
+#               to form the final prediction function 
 def opt_glm_implicit(X, Y, calib_funcs, max_iter=None, intercept=True, C_inv=None, l2_lam=None):
   nbr_calib_funcs = len(calib_funcs)
   nbr_samples = np.float64(Y.shape[0])
@@ -158,17 +162,18 @@ def opt_glm_implicit(X, Y, calib_funcs, max_iter=None, intercept=True, C_inv=Non
   is_first = True
   iter_idx = 0
   while (not has_converge) and (max_iter == None or iter_idx < max_iter):
+    # Linear fit residual
     w = opt_linear(X, Y-Y_hat, C_inv)
     vec_w.append(w)
     Y_tilt = Y_hat + X.dot(w)
     
-    G_Y_tilt = np.array([ f(Y_tilt).ravel() for f in calib_funcs ])
-    psuedo_fubini = G_Y_tilt.dot(G_Y_tilt.T)
-    psuedo_fubini_Y = G_Y_tilt.dot(Y.ravel())
-    w_tilt = np.linalg.pinv(psuedo_fubini).dot(psuedo_fubini_Y)
+    # linear fit target Y with current predictions cailb_func(Y_tilt) 
+    G_Y_tilt = np.array([ f(Y_tilt).ravel() for f in calib_funcs ]).T
+    w_tilt, _, _, _ = np.linalg.lstsq(G_Y_tilt, Y.ravel())
     vec_w_tilt.append(w_tilt) 
-    Y_hat = G_Y_tilt.T.dot(w_tilt).T.reshape(Y.shape)
+    Y_hat = G_Y_tilt.dot(w_tilt).reshape(Y.shape)
 
+    # Use square loss to determine convergence
     loss = np.sum((Y_hat - Y)**2) / nbr_samples
     if is_first:
       loss_init = np.sum(Y**2) / nbr_samples
@@ -304,7 +309,9 @@ def alg_forward(problem, K=None, costs=None, groups=None):
       feats_g = problem.data.vec_feats_g[g]
       sel_feats_end = best_feats_end + feats_g.shape[0]
       best_feats[best_feats_end:sel_feats_end] = feats_g
-      model, score = problem.opt_and_score(best_feats[:sel_feats_end], last_model)
+      # Experiment shows that warm start doesn't improve the results. 
+      #model, score = problem.opt_and_score(best_feats[:sel_feats_end], last_model)
+      model, score = problem.opt_and_score(best_feats[:sel_feats_end])
       gain = (score - last_score) / costs[g]
 
       if (gain > best_gain):
@@ -375,7 +382,8 @@ def alg_omp(problem, K=None, costs=None, groups=None):
     best_feats[best_feats_end:sel_feats_end] = feats_g
     best_feats_end = sel_feats_end
 
-    last_model, best_score = problem.opt_and_score(best_feats[:best_feats_end], last_model) 
+    #last_model, best_score = problem.opt_and_score(best_feats[:best_feats_end], last_model) 
+    last_model, best_score = problem.opt_and_score(best_feats[:best_feats_end]) 
     c = np.sum(costs[best_groups])
 
     #print best_score
@@ -388,32 +396,81 @@ def alg_omp(problem, K=None, costs=None, groups=None):
                     ('selected', object), ('selected_groups', object),
                     ('model', object), ('time', np.float)])
 
+def alg_stacked_omp(problem, K=None, costs=None, groups=None):
+  nbr_chunks = problem.data.chunks.shape[0]
+  n_features = problem.n_features()
+  if groups is None:
+    groups = np.arange(n_features)
+  n_groups = np.max(groups) + 1
+  if K is None:
+    K = n_groups
+  if costs is None:
+    costs = np.ones(n_groups)
+
+  mask = np.zeros(n_groups, np.bool)
+  selected_groups = np.zeros(K, np.int)
+  best_feats = np.zeros(n_features, np.int)
+  best_feats_end = 0
+  last_model = problem.init_model()
+  last_models = [ problem.init_model() for i in range(nbr_chunks) ]
+  sequence = [(0.0, 0.0, -1, [], [], last_model, 0)]
+
+  t0 = time.time()
+  for k in range(K):
+    print 'OMP Iteration %d' % k
+
+    g = problem.stacked_omp_select_groups(best_feats[:best_feats_end], mask, 
+      last_models, costs, groups)
+    if g == -1:
+      print 'Exited with no group selected on iteration %d' % (k+1)
+      break
+
+    selected_groups[k] = g
+    mask[g] = True
+
+    best_groups = selected_groups[:k+1]
+
+    feats_g = problem.data.vec_feats_g[g]
+    sel_feats_end = best_feats_end + feats_g.shape[0]
+    best_feats[best_feats_end:sel_feats_end] = feats_g
+    best_feats_end = sel_feats_end
+
+    # Warm start doesn't work well on GEM feature on MNIST and GRAIN. So we removed it.
+    # last_model, best_score = problem.opt_and_score(best_feats[:best_feats_end], last_model) 
+    last_model, best_score = problem.opt_and_score(best_feats[:best_feats_end]) 
+    c = np.sum(costs[best_groups])
+
+    #print best_score
+
+    # Update last_models (models for estimating the gradient on test sets)
+    for ci in range(nbr_chunks):
+      last_models[ci], _ = problem.opt_and_score(best_feats[:best_feats_end], chunk_i=ci) 
+
+    timestamp = time.time() - t0
+    sequence.append((best_score, c, g, best_feats[:best_feats_end], 
+                     best_groups, last_model, timestamp))
+
+  return np.asarray(sequence, dtype=[('score', np.float), ('cost', np.float), ('group', np.int),
+                    ('selected', object), ('selected_groups', object),
+                    ('model', object), ('time', np.float)])
+
+
 class ProblemData(object):
-  def __init__(self, X=None, Y=None, b=None, C_no_regul=None, costs=None, groups=None, l2_lam=1e-6):
+  def __init__(self, X=None, Y=None, costs=None, groups=None, l2_lam=1e-6, nbr_chunks=10):
     if X==None and Y==None and C_no_regul==None and b==None:
       print "Error: no data are given"
     self.X = X
-    self.Y = Y
-    m_Y = np.mean(Y, axis=0)
-    self.m_Y = m_Y
-    self.b = b
-    if b==None and Y==None:
-      print "Error: one of b and Y must be not NULL"
-      sys.exit(1)
-    if b != None and Y == None:
-      self.Y = np.zeros((1, b.shape[1]))
-    if Y != None and b == None:
-      self.b = X.T.dot(Y) / np.float64(X.shape[0]) 
     if len(Y.shape) == 1:
       self.nbr_responses = 1
-      self.Y.reshape((Y.shape[0], 1))
-      self.b = self.b.reshape((b.shape[0], 1))
+      Y = Y.reshape((Y.shape[0], 1))
     else:
       self.nbr_responses = Y.shape[1]
+    self.Y = Y
+    self.m_Y = np.mean(Y, axis=0)
 
-    if C_no_regul == None:
-      C_no_regul = X.T.dot(X) / np.float64(X.shape[0])
-      C_no_regul = (C_no_regul.T + C_no_regul) * 0.5
+    self.b = X.T.dot(Y) / np.float64(X.shape[0]) 
+    C_no_regul = X.T.dot(X) / np.float64(X.shape[0])
+    C_no_regul = (C_no_regul.T + C_no_regul) * 0.5
     self.C_no_regul = C_no_regul
 
     self.groups = groups
@@ -424,6 +481,7 @@ class ProblemData(object):
     if costs == None:
       self.costs = np.ones(C_no_regul.shape[0])
 
+    # Per group covariance
     n_groups = np.max(self.groups)+1
     self.vec_feats_g = []
     self.group_C_invs = []
@@ -433,7 +491,38 @@ class ProblemData(object):
       C_g = self.C_no_regul[feats_g[:,np.newaxis], feats_g] 
       self.group_C_invs.append(np.linalg.pinv(C_g)) 
 
+    # For each chunk compute b, C, C_g
+    self.chunks, self.c_chunks = opt_util.generate_chunks(Y.shape[0], nbr_chunks)
+    self.chunk_C_no_regul = []
+    self.chunk_b = []
+    self.c_chunk_C_no_regul = []
+    self.c_chunk_b = []
+    self.chunk_group_C_invs = []
+    for ci in range(nbr_chunks):
+      chunk = self.chunks[ci, :]
+      c_chunk = self.c_chunks[ci, :]
+
+      # b = XY
+      b = X[chunk,:].T.dot(Y[chunk,:]) / np.float64(Y.shape[0])
+      self.chunk_b.append(b)
+      self.c_chunk_b.append(self.b - b)
+
+      # C_no_regual
+      C_no_regul = X[chunk,:].T.dot(X[chunk,:]) / np.float64(Y.shape[0])
+      C_no_regul = (C_no_regul.T + C_no_regul) * 0.5
+      self.chunk_C_no_regul.append(C_no_regul) 
+      self.c_chunk_C_no_regul.append(self.C_no_regul - C_no_regul) 
+
+      # C_g
+      self.chunk_group_C_invs.append([])
+      for _, feats_g in enumerate(self.vec_feats_g):
+        C_g = C_no_regul[feats_g[:,np.newaxis], feats_g]
+        self.chunk_group_C_invs[-1].append(np.linalg.pinv(C_g))
+
     self.set_l2_lam(l2_lam)
+
+  def n_samples(self):
+    return self.X.shape[0]
 
   def n_features(self):
     return self.C_no_regul.shape[0]
@@ -447,14 +536,33 @@ class ProblemData(object):
     diag_C_no_regul += diag_C_no_regul == 0 
     self.C = self.C_no_regul + np.diag(diag_C_no_regul * l2_lam, 0)
 
+    self.c_chunk_C = []
+    self.chunk_C = []
+    for ci, c_chunk_C in enumerate(self.c_chunk_C_no_regul):
+      diag_C_no_regul = c_chunk_C.diagonal().copy()
+      diag_C_no_regul += diag_C_no_regul == 0 
+      self.c_chunk_C.append(c_chunk_C + np.diag(diag_C_no_regul * l2_lam, 0))
+
+      chunk_C = self.chunk_C_no_regul[ci]
+      diag_C_no_regul = chunk_C.diagonal().copy()
+      diag_C_no_regul += diag_C_no_regul == 0 
+      self.chunk_C.append(chunk_C + np.diag(diag_C_no_regul * l2_lam, 0))
+
 class OptSolverLinear(object):
   def __init__(self, l2_lam=1e-6, intercept=True):
     self.l2_lam = l2_lam
     self.intercept=intercept
 
-  def opt_and_score(self, data, selected_feats, model0=None):
-    C = data.C[selected_feats[:,np.newaxis], selected_feats]
-    b = data.b[selected_feats]
+  def opt_and_score(self, data, selected_feats, model0=None, chunk_i=None):
+    if chunk_i == None:
+      dataC = data.C
+      datab = data.b
+    else:
+      dataC = data.c_chunk_C[chunk_i]
+      datab = data.c_chunk_b[chunk_i]
+
+    C = dataC[selected_feats[:,np.newaxis], selected_feats]
+    b = datab[selected_feats]
     if self.intercept:
       C_tmp = np.zeros((C.shape[0] + 1, C.shape[1] + 1))
       C_tmp[1:,1:] = C
@@ -476,12 +584,19 @@ class OptSolverLinear(object):
   def init_model(self, nbr_responses):
     return np.zeros((self.intercept, nbr_responses))
 
-  def compute_grad_proxy(self, data, selected_feats, model):
-    if self.intercept:
-      return data.b - data.C[:,selected_feats].dot(model[1:]) - model[0]
-    return data.b - data.C[:,selected_feats].dot(model)
+  def compute_grad_proxy(self, data, selected_feats, model, chunk_i=None):
+    if chunk_i == None:
+      dataC = data.C
+      datab = data.b
+    else:
+      dataC = data.chunk_C[chunk_i]
+      datab = data.chunk_b[chunk_i]
 
-  def compute_whitened_group_gradient_square(self, grad_proxy, data, sel_g, M):
+    if self.intercept:
+      return datab - dataC[:,selected_feats].dot(model[1:]) - model[0, :]
+    return datab - dataC[:,selected_feats].dot(model)
+
+  def compute_whitened_group_gradient_square(self, grad_proxy, data, sel_g, M, chunk_i=None):
     b_g = grad_proxy[sel_g]
     return np.sum(b_g.T.dot(M) * b_g) / np.float64(data.n_features())
 
@@ -490,9 +605,16 @@ class OptSolverLogistic(object):
     self.l2_lam = l2_lam
     self.intercept = intercept
 
-  def opt_and_score(self, data, selected_feats, model0=None):
-    C_inv = gcp.gtime(scipy.linalg.inv, data.C[selected_feats[:,np.newaxis], selected_feats])
-    return opt_glm_explicit(data.X[:, selected_feats], data.Y, 
+  def opt_and_score(self, data, selected_feats, model0=None, chunk_i=None):
+    if chunk_i == None:
+      dataC = data.C
+      data_range = np.arange(data.n_samples())
+    else:
+      dataC = data.c_chunk_C[chunk_i]
+      data_range = data.c_chunks[chunk_i, :]
+
+    C_inv = gcp.gtime(scipy.linalg.inv, dataC[selected_feats[:,np.newaxis], selected_feats])
+    return opt_glm_explicit(data.X[data_range[:, np.newaxis], selected_feats], data.Y[data_range, :], 
                             logistic_potential, logistic_mean_func,  
                             w0=model0, 
                             C_inv=C_inv,
@@ -507,8 +629,13 @@ class OptSolverLogistic(object):
   def init_model(self, nbr_responses):
     return np.zeros((self.intercept, nbr_responses), dtype=np.float64)
   
-  def compute_grad_proxy(self, data, selected_feats, model):
-    sel_X = data.X[:,selected_feats]
+  def compute_grad_proxy(self, data, selected_feats, model, chunk_i=None):
+    if chunk_i == None:
+      data_range = np.arange(data.n_samples())
+    else:
+      data_range = data.chunks[chunk_i, :]
+
+    sel_X = data.X[data_range[:, np.newaxis],selected_feats]
     if self.intercept:
       dot_Xw = sel_X.dot(model[1:]) + model[0]
     else:
@@ -517,10 +644,15 @@ class OptSolverLogistic(object):
     # note that each logsitic_gradients is a symmetric KxK, so we use axis=2 or 1.
     # essenstially each residual apply the KxK linear tansf of gradient.
     # result is NxK 
-    return np.sum((data.Y - logistic_mean_func(dot_Xw))[:, np.newaxis, :] * logistic_gradient(dot_Xw), axis=2)
+    return np.sum((data.Y[data_range, :] - logistic_mean_func(dot_Xw))[:, np.newaxis, :] * logistic_gradient(dot_Xw), axis=2)
 
-  def compute_whitened_group_gradient_square(self, grad_proxy, data, sel_g, M):
-    b_g = grad_proxy.T.dot(data.X[:,sel_g]) 
+  def compute_whitened_group_gradient_square(self, grad_proxy, data, sel_g, M, chunk_i=None):
+    if chunk_i == None:
+      data_range = np.arange(data.n_samples())
+    else:
+      data_range = data.chunks[chunk_i, :]
+
+    b_g = grad_proxy.T.dot(data.X[data_range[:,np.newaxis],sel_g]) 
     return np.sum((b_g.dot(M)) * b_g) / np.float64(data.n_features())
 
 class OptSolverGLM(object):
@@ -533,10 +665,17 @@ class OptSolverGLM(object):
     self.calib_funcs, self.weighted_gradients_func = \
       generate_glm_funcs(nbr_responses, glm_power)
 
-  def opt_and_score(self, data, selected_feats, model0=None):
-    return opt_glm_implicit(data.X[:, selected_feats], data.Y, self.calib_funcs, 
+  def opt_and_score(self, data, selected_feats, model0=None, chunk_i=None):
+    if chunk_i == None:
+      C = data.C
+      data_range = np.arange(data.n_samples())
+    else:
+      C = data.c_chunk_C[chunk_i] 
+      data_range = data.c_chunks[chunk_i, :]
+
+    return opt_glm_implicit(data.X[data_range[:, np.newaxis], selected_feats], data.Y[data_range, :], self.calib_funcs, 
       max_iter=self.max_iter, 
-      C_inv=np.linalg.pinv(data.C[selected_feats[:,np.newaxis], selected_feats]))
+      C_inv=np.linalg.pinv(C[selected_feats[:,np.newaxis], selected_feats]))
 
   @staticmethod
   def predict(X, model, calib_funcs):
@@ -549,14 +688,19 @@ class OptSolverGLM(object):
   def init_model(self, nbr_responses):
     return ([np.zeros((self.intercept, nbr_responses), dtype=np.float64)], [])
 
-  def compute_grad_proxy(self, data, selected_feats, model):
+  def compute_grad_proxy(self, data, selected_feats, model, chunk_i=None):
+    if chunk_i == None:
+      data_range = np.arange(data.n_samples())
+    else:
+      data_range = data.chunks[chunk_i, :]
+
     Y_hat, w_grads = \
-      glm_implicit_predict(data.X[:, selected_feats], model[0], model[1], 
-        self.calib_funcs, compute_grad=True, Y=data.Y, X_full=data.X,
+      glm_implicit_predict(data.X[data_range[:, np.newaxis], selected_feats], model[0], model[1], 
+        self.calib_funcs, compute_grad=True, Y=data.Y[data_range, :], X_full=data.X,
         weighted_gradients=self.weighted_gradients_func)
     return w_grads
 
-  def compute_whitened_group_gradient_square(self, w_grads, data, sel_g, M):
+  def compute_whitened_group_gradient_square(self, w_grads, data, sel_g, M, chunk_i=None):
     w_grads_g = np.transpose(w_grads[:, sel_g, :], axes=[0,2,1])
     return np.sum(w_grads_g.dot(M) * w_grads_g)
 
@@ -571,8 +715,8 @@ class OptProblem(object):
   def n_features(self):
     return self.data.n_features()
 
-  def opt_and_score(self, selected_feats, model0=None):
-    return self.solver.opt_and_score(self.data, selected_feats, model0)
+  def opt_and_score(self, selected_feats, model0=None, chunk_i=None):
+    return self.solver.opt_and_score(self.data, selected_feats, model0, chunk_i)
 
   def init_model(self):
     return self.solver.init_model(self.data.n_responses())
@@ -604,9 +748,41 @@ class OptProblem(object):
     #print 'best was %d ip %f' % (best_g, best_ip)
     return best_g
 
+  def stacked_omp_select_groups(self, selected_feats, mask, models, costs, groups):
+
+    grad_proxy = []
+    for ci, model in enumerate(models):
+      grad_proxy.append(self.solver.compute_grad_proxy(self.data, selected_feats, model, chunk_i=ci))
+
+    best_ip = 0.0
+    best_g = -1
+
+    #print 'running omp selection with %s already selected' % np.sum(mask)
+
+    for g in np.unique(groups):
+      if mask[g]:
+        continue
+
+      sel_g = np.nonzero(groups == g)[0]
+      whitened_grad_square = 0
+      for ci in range(len(models)):
+        whitened_grad_square += self.solver.compute_whitened_group_gradient_square(\
+          grad_proxy[ci], self.data, sel_g, self.data.chunk_group_C_invs[ci][g], chunk_i=ci)
+      ip = whitened_grad_square / costs[g]
+
+      #print 'group %d ip %f' % (g, ip)
+      #print ip, np.sum(mask)
+
+      if ip > best_ip:
+        best_ip = ip
+        best_g = g
+
+    #print 'best was %d ip %f' % (best_g, best_ip)
+    return best_g
+
+
 
 def all_results(X=None, Y=None, 
-                b=None, C_no_regul=None, 
                 costs=None, groups=None,
                 K=None,
                 l2_lam=1e-6, 
@@ -614,7 +790,7 @@ def all_results(X=None, Y=None,
                 opt_methods=['FR'], # 'OMP'
                 params={}):
  
-  data = ProblemData(X,Y,b,C_no_regul,costs,groups,l2_lam)
+  data = ProblemData(X,Y,costs,groups,l2_lam, nbr_chunks=10)
   ret = [] 
   for rm in regression_methods:
     # Initialize problem (problem data + solver)
@@ -648,6 +824,9 @@ def all_results(X=None, Y=None,
 
       elif om == 'OMP':
         results.append(alg_omp(problem, K=K, costs=costs, groups=groups))
+
+      elif om == 'OMP_stacked':
+        results.append(alg_stacked_omp(problem, K=K, costs=costs, groups=groups))
 
       else:
         print 'Error: Unknown optimization method - %s' % (om)
