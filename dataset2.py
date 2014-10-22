@@ -166,7 +166,11 @@ class Dataset(object):
 
 
       budget_vs_loss_all = dict(zip(methods, budget_vs_loss_all)) 
-      np.savez(self.filename_budget_vs_loss(fn_result, fn_trains, params), **budget_vs_loss_all)
+      log_filename = self.filename_budget_vs_loss(fn_result, fn_trains, params)
+      # HAck for AISTATS TODO
+      log_filename, ext = os.path.splitext(log_filename)
+      log_filename = "{}_AISTATS.npz".format(log_filename)
+      np.savez(log_filename, **budget_vs_loss_all)
       bvl_cross_rm.append(budget_vs_loss_all)
     #endfor rm in regression methods
     return dict(zip(params['regression_methods'], bvl_cross_rm))

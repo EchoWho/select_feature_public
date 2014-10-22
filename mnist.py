@@ -4,18 +4,18 @@ import sklearn.linear_model
 
 def doit():
   print "start loading"
-  d_mnist = np.load('mnist_data/mnist.npz')
+  d_mnist = np.load('/home/hanzhang/data/mnist/mnist.npz')
   Y = d_mnist['Y']
   Y_test = d_mnist['Ytest']
 
-  d_train = np.load('/home/hanzhang/code/disc_feat_geneig_dev/X_phi_train_mpp_10_theta_2_gamma_0.5_7-24-21-39.npz')
+  d_train = np.load('/home/hanzhang/data/mnist/X_phi_train_mpp_10_theta_2_gamma_0.5_7-24-21-39.npz')
   X = d_train['arr_0']
   m_X = np.mean(X, axis=0)
   std_X = np.std(X, axis=0)
   std_X += std_X==0
   X = (X - m_X) / std_X
 
-  d_test = np.load('/home/hanzhang/code/disc_feat_geneig_dev/X_phi_test_mpp_10_theta_2_gamma_0.5_7-24-22-0.npz')
+  d_test = np.load('/home/hanzhang/data/mnist/X_phi_test_mpp_10_theta_2_gamma_0.5_7-24-22-0.npz')
   X_test = d_test['arr_0']
   X_test = (X_test - m_X ) / std_X
 
@@ -35,6 +35,8 @@ def doit():
   #order = d_order['order']
 
   fitted_model = opt2.regression_fit(X,Y, params, multi_classification=True)
+
+  print "Finished Training"
 
   Y_hat = opt2.regression_predict(X_test, fitted_model)
 
