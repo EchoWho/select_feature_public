@@ -342,8 +342,8 @@ def alg_forward(problem, K=None, costs=None, groups=None):
                      best_groups, best_model, timestamp))
 
     # Hack for AISTATS save the steps one by one.
-    np.savez("mnist_results/FR_{}.npz".format(k), cost=c, group=best_group, selected=best_feats[:best_feats_end],
-             selected_groups=best_groups, model=best_model, time=timestamp)
+    #np.savez("mnist_results/FR_{}.npz".format(k), cost=c, group=best_group, selected=best_feats[:best_feats_end],
+    #         selected_groups=best_groups, model=best_model, time=timestamp)
 
   return np.asarray(sequence, dtype=[('score', np.float), ('cost', np.float), ('group', np.int),
                     ('selected', object), ('selected_groups', object),
