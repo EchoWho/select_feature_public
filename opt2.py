@@ -897,3 +897,20 @@ def regression_predict(X, method_model):
   if multi_classification:
     return opt_util.indvec2label(Y_hat)
   return Y_hat
+
+def compute_oracle(costs, losses):
+  c = []
+  l = []
+  for i in range(len(costs) - 1):
+    c.append(costs[i + 1] - costs[i])
+    l.append(losses[i] - losses[i + 1])
+  l = np.array(l)
+  c = np.array(c)
+  l_over_c = 0.0 - l / c
+  sorted_idx = sorted(range(len(l)), key=lambda x : l_over_c[x])
+  oracle_costs = [costs[0]]
+  oracle_losses = [losses[0]]
+  for _, i in enumerate(sorted_idx):
+    oracle_costs.append(oracle_costs[-1] + c[i])
+    oracle_losses.append(oracle_losses[-1] - l[i])
+  return np.array(oracle_costs), np.array(oracle_losses)
