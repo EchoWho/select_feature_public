@@ -99,12 +99,12 @@ def opt_glm_explicit(X, Y, potential_func, mean_func, w0=None,
 
     if nbr_iter > 0:
       conv_num = abs(last_objective - objective) / np.abs(last_objective) 
-      gcp.info("conv num: {}".format(conv_num))
+      #gcp.info("conv num: {}".format(conv_num))
       has_converge = conv_num < 1e-5
       if has_converge:
         break
       if last_objective < objective:
-        gcp.info("iteration: {}. Step size was too large. Shrinking!!!".format(nbr_iter))
+        #gcp.info("iteration: {}. Step size was too large. Shrinking!!!".format(nbr_iter))
         total_delta_w *= beta
         w = last_w - total_delta_w
         continue
@@ -342,8 +342,8 @@ def alg_forward(problem, K=None, costs=None, groups=None):
                      best_groups, best_model, timestamp))
 
     # Hack for AISTATS save the steps one by one.
-    np.savez("mnist_results/FR_{}.npz".format(k), cost=c, group=best_group, selected=best_feats[:best_feats_end],
-             selected_groups=best_groups, model=best_model, time=timestamp)
+    #np.savez("mnist_results/FR_{}.npz".format(k), cost=c, group=best_group, selected=best_feats[:best_feats_end],
+    #         selected_groups=best_groups, model=best_model, time=timestamp)
 
   return np.asarray(sequence, dtype=[('score', np.float), ('cost', np.float), ('group', np.int),
                     ('selected', object), ('selected_groups', object),
@@ -460,7 +460,7 @@ def alg_stacked_omp(problem, K=None, costs=None, groups=None):
 
 
 class ProblemData(object):
-  def __init__(self, X=None, Y=None, costs=None, groups=None, l2_lam=1e-6, nbr_chunks=10):
+  def __init__(self, X=None, Y=None, costs=None, groups=None, l2_lam=1e-6, nbr_chunks=5):
     if X==None and Y==None and C_no_regul==None and b==None:
       print "Error: no data are given"
     self.X = X

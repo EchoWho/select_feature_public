@@ -42,7 +42,7 @@ def generate_chunks(N, k, complement=True):
   chunk_size = N / k
   chunks =  np.array(zip(*[iter(a)]*chunk_size))
   
-  c_chunks = np.zeros((k, chunk_size * (k-1)))
+  c_chunks = np.zeros((k, chunk_size * (k-1)), dtype=np.int64)
   for i in range(k):
     c_chunks[i, :] = np.hstack([ chunk for ci, chunk in enumerate(chunks) if ci != i])
   return chunks, c_chunks

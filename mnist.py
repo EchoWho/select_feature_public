@@ -4,7 +4,7 @@ import sklearn.linear_model
 
 def doit():
   print "start loading"
-  d_mnist = np.load('mnist_data/mnist.npz')
+  d_mnist = np.load('/home/hanzhang/data/mnist/mnist.npz')
   Y = d_mnist['Y']
   Y_test = d_mnist['Ytest']
 
@@ -35,6 +35,8 @@ def doit():
   #order = d_order['order']
 
   fitted_model = opt2.regression_fit(X,Y, params, multi_classification=True)
+
+  print "Finished Training"
 
   Y_hat = opt2.regression_predict(X_test, fitted_model)
 
