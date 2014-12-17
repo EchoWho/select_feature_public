@@ -601,7 +601,7 @@ class OptSolverLinear(object):
 
   def compute_whitened_group_gradient_square(self, grad_proxy, data, sel_g, M, chunk_i=None):
     b_g = grad_proxy[sel_g]
-    return np.sum(b_g.T.dot(M) * b_g) / np.float64(data.n_features())
+    return np.sum(b_g.T.dot(M) * b_g.T) / np.float64(data.n_features())
 
 class OptSolverLogistic(object):
   def __init__(self, l2_lam=1e-6, intercept=True):
