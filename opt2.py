@@ -7,7 +7,6 @@ import scipy.linalg
 import opt_util
 import pdb
 import scipy.linalg
-from gtkutils.color_printer import gcp
 
 def square_error(Y_hat, Y):
   return np.sum((Y_hat - Y)**2) / np.float64(Y.shape[0])
@@ -24,7 +23,7 @@ def logistic_gradient(dot_Xw):
   if dot_Xw.shape[1] == 1:
     exp_Xw = np.exp(-dot_Xw)
     return (exp_Xw / (1.0 + exp_Xw)**2)[:, np.newaxis, :]
-  exp_Xw = np.exp(dot_Xw)
+  exp_Xw = np.exp(dot_Xw - np.min(dot_Xw))
   Z = np.sum(exp_Xw, axis=1)[:, np.newaxis]
   exp_Xw /= Z
   N = dot_Xw.shape[0]
@@ -47,7 +46,7 @@ def opt_linear(X,Y,C_inv=None):
     C = (C + C.T) / 2.0
     C_inv = np.linalg.pinv(C)
   return C_inv.dot(b)
-  
+
 # X : (N, D)
 # Y : (N, K)
 # potential_func : (N, K) -> (N, 1) // part of the objective
@@ -95,7 +94,7 @@ def opt_glm_explicit(X, Y, potential_func, mean_func, w0=None,
       objective += l2_lam * np.sum( (w[1:] * w[1:]) ) / 2.0
     else:
       objective += l2_lam * np.sum( (w * w) ) / 2.0
-    gcp.info("iteration: {}. objective: {}".format(nbr_iter, objective))
+    print "iteration: {}. objective: {}".format(nbr_iter, objective)
 
     if nbr_iter > 0:
       conv_num = abs(last_objective - objective) / np.abs(last_objective) 
@@ -617,7 +616,7 @@ class OptSolverLogistic(object):
       dataC = data.c_chunk_C[chunk_i]
       data_range = data.c_chunks[chunk_i, :]
 
-    C_inv = gcp.gtime(scipy.linalg.inv, dataC[selected_feats[:,np.newaxis], selected_feats])
+    C_inv = scipy.linalg.inv, dataC[selected_feats[:,np.newaxis], selected_feats]
     return opt_glm_explicit(data.X[data_range[:, np.newaxis], selected_feats], data.Y[data_range, :], 
                             logistic_potential, logistic_mean_func,  
                             w0=model0, 

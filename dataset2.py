@@ -5,6 +5,91 @@ import sys,os
 import os.path
 import opt2
 
+def load_data(fn, val_map=lambda x:x, feat_dim=None, data_dir='.'):
+    _, fextension = os.path.splitext(fn)
+    filename = '%s/%s' % (data_dir, fn)
+    if fextension == '.mat':
+      """ X is N x D and Y is N x 1 """
+      d = scipy.io.loadmat(filename)
+      X = d['X']
+      Y = d['Y']
+      if (Y.shape[0] == 1) and (Y.shape[1] == X.shape[0]):
+        # TODO remove this hack eventually
+        Y = Y.T
+      if X.shape[0] != Y.shape[0]:
+        sys.exit(1)
+
+    elif fextension == '.npz':
+      """ X is N x D and Y is N x 1 """
+      d = np.load(filename)
+      X = d['X']
+      Y = d['Y']
+      if len(Y.shape) == 1:
+        Y = Y.reshape((Y.shape[0], 1))
+      d.close()
+      if (Y.shape[0] != X.shape[0]):
+        print "Error: Number of labels is not equal to number of features"
+        sys.exit(1)
+
+    elif fextension == '.csv' or fextension == '.txt':
+      X = []
+      Y = []
+      try:
+        fin = open(filename, 'r')
+      except IOError:
+        print 'Error: cannot open %s' % (filename)
+        sys.exit(1)
+      dlim = ',' 
+      if fextension == 'txt':
+        dlim = ' '
+      for l in fin :
+        features = l.rstrip().split(dlim)
+        if feat_dim is None:
+            feat_dim = len(features) - 1
+        dataline = [0] * feat_dim
+        for (i, f) in enumerate(features) :
+          if i == 0 :
+            Y.append(int(f))
+          else:
+            dataline[i-1] = np.float64(f)
+        X.append(dataline)
+      X = np.array(X)
+      Y = np.array(Y).reshape((len(Y), 1))
+      fin.close()
+
+    elif fextension == '.svmlight':
+      X = []
+      Y = []
+      try:
+        fin = open(filename, 'r')
+      except IOError:
+        print 'Error: cannot open %s' % (filename)
+        sys.exit(1)
+      for l in fin :
+        features = l.rstrip().split(' ')
+        if feat_dim is None:
+            feat_dim = len(features) - 1
+        dataline = [0] * feat_dim
+        for (i, f) in enumerate(features) :
+          if i == 0 :
+            Y.append(int(f))
+          else:
+            indfeat = f.split(':')
+            try:
+              dataline[int(indfeat[0])-1] = np.float64(indfeat[1])
+            except ValueError:
+              pass
+        X.append(dataline)
+      X = np.array(X)
+      Y = np.array(Y).reshape((len(Y),1))
+      fin.close()
+
+    else:
+      print "Error: Unknown data file extension"
+      sys.exit(1)
+    return X, val_map(Y)
+
+
 class Dataset(object):
   def __init__(self, data_dir, result_dir, fn_group_info):
     self.data_dir = data_dir
