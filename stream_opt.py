@@ -3,8 +3,97 @@ import dataset2
 import numpy as np
 import scipy
 
+#
+# Class Hierarchy:
+#  
+#  alg_omp requires a Problem,
+#  Problem requires two parts: ProblemData, ProblemSolver
+#
+#  Data preprocess (m_X, m_Y, C_group, and such); 
+#  ProblemSolver produce models 
+#
+#
 
-# Streaming anytime training/testing
+##########################
+# Core algorithm: OMP
+##########################
+
+def alg_omp(problem):
+    n_groups = problem.data.n_groups
+    n_dim = problem.data.n_dim
+
+    mask = np.zeros(n_groups, np.bool)
+    selected_groups = np.zeros(K, np.int)
+    best_feats = np.zeros(n_dim, np.int)
+    best_feats_end = 0
+    last_model=problem.init_model()
+    # score, cost, group, selected, selected_groups, model, time
+    sequence = [(0.0, 0.0, -1, [], [], last_model, 0)]
+
+    t0 = time.time()
+    for k in range(n_groups):
+        print 'OMP Iteration %d' % k
+        g = omp_select_groups(problem, best_feats[:best_feats_end], mask, last_model)
+
+        if g == -1:
+            print 'Exited with no group selected on iteration %d' % (k+1)
+            break
+
+        selected_groups[k] = g
+        mask[g] = True
+
+        best_groups = selected_groups[:k+1]
+
+        feats_g = problem.data.vec_feats_g[g]
+        sel_feats_end = best_feats_end + feats_g.shape[0]
+        best_feats[best_feats_end:sel_feats_end] = feats_g
+        best_feats_end = sel_feats_end
+
+        # warm start vs. cold start
+        #last_model, best_score = problem.opt_and_score(best_feats[:best_feats_end], last_model) 
+        last_model, best_score = problem.opt_and_score(best_feats[:best_feats_end]) 
+        
+        c = np.sum(costs[best_groups])
+        timestamp = time.time() - t0
+        sequence.append((best_score, c, g, best_feats[:best_feats_end], 
+                         best_groups, last_model, timestamp))
+
+    return np.asarray(sequence, dtype=[('score', np.float), ('cost', np.float), ('group', np.int),
+                      ('selected', object), ('selected_groups', object),
+                      ('model', object), ('time', np.float)])
+
+
+
+def omp_select_groups(problem, selected_features, mask, model):
+    grad_norms = compute_whiten_gradient_norm_unselected(problem.spd, selected_features, mask, model) 
+
+    best_ip = 0.0
+    best_g = -1
+    for g,norm in enumerate(grad_norms):
+        ip = norm / problem.data.costs[g]
+
+        if ip > best_ip:
+            best_ip = ip
+            best_g = g
+
+    return best_g
+
+
+######################################
+# Problem, Problem Data
+######################################
+
+class StreamOptProblem(object):
+    def __init__(self,stream_data, stream_solver):
+        self.spd = stream_data
+        self.solver = stream_solver
+
+    def opt_and_score(self, selected_feats, model0):
+        return self.solver.opt_and_score(self.spd, selected_feats, model0)
+
+    def init_model(self):
+        return self.solver.init_model(self.spd.n_responses())
+
 
 class StreamProblemData(object): 
     def __init__(self, data_dir, vec_data_fn, costs, groups, l2_lam=1e-6, y_val_func = lambda x:x, call_init=True, compute_XTY=False, load_fn=None):
@@ -51,6 +140,7 @@ class StreamProblemData(object):
                 self.n_responses = Y_i.shape[1]
                 self.n_X += X_i.shape[0]
                 self.m_X += np.sum(X_i, axis=0)
+                # Overflow Underflow TODO
                 self.XTX += np.dot(X_i.T, X_i)
                 if self.compute_XTY:
                     self.XTY += np.dot(X_i.T, Y_i)
@@ -89,6 +179,12 @@ class StreamProblemData(object):
 
         # TODO handle Scale of each X dimension ?
         return X, Y
+
+
+######################################
+# Solvers
+######################################
+
 
 def opt_stream_glm_explicit(vec_data_fn, selected=None, spd, potential_func, mean_func, C_inv, w0=None, intercept=True):
     if selected is None:
@@ -140,7 +236,7 @@ def opt_stream_glm_explicit(vec_data_fn, selected=None, spd, potential_func, mea
 
             if last_objective < objective:
                 print "iteration: {}. Step size was too large. Shrinking!!!".format(nbr_iter)
-#TODO fix this if this happens. Backtrack for now.
+                #TODO fix this if this happens. Backtrack for now.
                 last_delta_w *= beta
                 w = last_w - last_delta_w
                 continue
@@ -217,7 +313,6 @@ class StreamOptSolverLinear(object):
     
 class StreamOptSolverGLMExplicit(object):
     def __init__(self, l2_lam=1e-4, intercept=True, mean_func=lambda x:x, potential_func = lambda x: (x**2)*0.5, gradient_func = lambda x:1):
-        
         self.mean_func = mean_func
         self.potential_func = potential_func
         self.gradient_func = gradient_func
@@ -289,77 +384,9 @@ class StreamOptSolverGLMExplicit(object):
         return w_grad_norm_whiten
                 
 
-def alg_omp(problem):
-    n_groups = problem.data.n_groups
-    n_dim = problem.data.n_dim
-
-    mask = np.zeros(n_groups, np.bool)
-    selected_groups = np.zeros(K, np.int)
-    best_feats = np.zeros(n_dim, np.int)
-    best_feats_end = 0
-    last_model=problem.init_model()
-    # score, cost, group, selected, selected_groups, model, time
-    sequence = [(0.0, 0.0, -1, [], [], last_model, 0)]
-
-    t0 = time.time()
-    for k in range(n_groups):
-        print 'OMP Iteration %d' % k
-        g = omp_select_groups(problem, best_feats[:best_feats_end], mask, last_model)
-
-        if g == -1:
-            print 'Exited with no group selected on iteration %d' % (k+1)
-            break
-
-        selected_groups[k] = g
-        mask[g] = True
-
-        best_groups = selected_groups[:k+1]
-
-        feats_g = problem.data.vec_feats_g[g]
-        sel_feats_end = best_feats_end + feats_g.shape[0]
-        best_feats[best_feats_end:sel_feats_end] = feats_g
-        best_feats_end = sel_feats_end
-
-        # warm start vs. cold start
-        #last_model, best_score = problem.opt_and_score(best_feats[:best_feats_end], last_model) 
-        last_model, best_score = problem.opt_and_score(best_feats[:best_feats_end]) 
-        
-        c = np.sum(costs[best_groups])
-        timestamp = time.time() - t0
-        sequence.append((best_score, c, g, best_feats[:best_feats_end], 
-                         best_groups, last_model, timestamp))
-
-    return np.asarray(sequence, dtype=[('score', np.float), ('cost', np.float), ('group', np.int),
-                      ('selected', object), ('selected_groups', object),
-                      ('model', object), ('time', np.float)])
-
-
-
-def omp_select_groups(problem, selected_features, mask, model):
-    grad_norms = compute_whiten_gradient_norm_unselected(problem.spd, selected_features, mask, model) 
-
-    best_ip = 0.0
-    best_g = -1
-    for g,norm in enumerate(grad_norms):
-        ip = norm / problem.data.costs[g]
-
-        if ip > best_ip:
-            best_ip = ip
-            best_g = g
-
-    return best_g
-
-
-class StreamOptProblem(object):
-    def __init__(self,stream_data, stream_solver):
-        self.spd = stream_data
-        self.solver = stream_solver
-
-    def opt_and_score(self, selected_feats, model0):
-        return self.solver.opt_and_score(self.spd, selected_feats, model0)
-
-    def init_model(self):
-        return self.solver.init_model(self.spd.n_responses())
+######################################
+# Use only the solvers. 
+######################################
 
 def stream_regression_fit(vec_X_fn, vec_Y_fn, params, multi_classification=True):
     #TODO
