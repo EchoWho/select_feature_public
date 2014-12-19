@@ -7,9 +7,10 @@ import scipy
 #  alg_omp requires a Problem,
 #  Problem requires two parts: ProblemData, ProblemSolver
 #
-#  Data preprocess (m_X, m_Y, C_group, and such); 
-#  ProblemSolver produce models 
+#  ProblemData: preprocess (m_X, m_Y, XTX,XTY, and etc); load_fn ; group structures, costs
+#  ProblemSolver: Linear Regression / Logistic regression (GLM)
 #
+#  Misc: Use data/solver only, regression_fit/regression_predict. By-pass alg_omp
 #
 
 ##########################
@@ -62,8 +63,8 @@ def alg_omp(problem):
 
 
 
-def omp_select_groups(problem, selected_features, mask, model):
-    grad_norms = compute_whiten_gradient_norm_unselected(problem.spd, selected_features, mask, model) 
+def omp_select_groups(problem, selected_feats, mask, model):
+    grad_norms = compute_whiten_gradient_norm_unselected(problem.spd, selected_feats, mask, model) 
 
     best_ip = 0.0
     best_g = -1
@@ -187,7 +188,7 @@ class StreamProblemData(object):
 ######################################
 
 
-def opt_stream_glm_explicit(vec_data_fn, selected=None, spd, potential_func, mean_func, C_inv, w0=None, intercept=True):
+def opt_stream_glm_explicit(vec_data_fn, spd, potential_func, mean_func, C_inv, selected=None, w0=None, intercept=True):
     if selected is None:
         selected = np.arange(spd.n_dim())
 
@@ -258,14 +259,14 @@ class StreamOptSolverLinear(object):
         self.l2_lam = l2_lam
         self.intercept = intercept
 
-    def opt_and_score(self, spd, selected_features, model0=None):
+    def opt_and_score(self, spd, selected_feats, model0=None):
         model = {}
         model['intercept'] = self.intercept
         if self.intercept:
             model['m_Y'] = spd.m_Y
 
-        b = spd.b[selected_features] 
-        C = spd.C[selected_features[:, np.newaxis], selected_features]
+        b = spd.b[selected_feats] 
+        C = spd.C[selected_feats[:, np.newaxis], selected_feats]
         model['w'] = np.linalg.pinv(C).dot(b)
 
         score = np.sum((2 * b - C.dot(w))*w - self.l2_lam*w*w )
@@ -325,7 +326,9 @@ class StreamOptSolverGLMExplicit(object):
         w0 = None
         if model0 is not None:
             w0 = model0['w']
-        w, score = opt_stream_glm_explicit(spd.vec_data_fn, selected_feats, spd, self.potential_func, self.mean_func, C_inv=np.linalg.pinv(spd.C[selected_feats[:, np.newaxis], selected_feats]), w0=w0, intercept=self.intercept)
+
+        C_inv = np.linalg.pinv(spd.C[selected_feats[:, np.newaxis], selected_feats])
+        w, score = opt_stream_glm_explicit(spd.vec_data_fn, spd, self.potential_func, self.mean_func, C_inv, selected_feats, w0=w0, intercept=self.intercept)
 
         model = {}
         model['intercept'] = self.intercept
