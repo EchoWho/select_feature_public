@@ -1,5 +1,11 @@
 import numpy as np
 
+def label2indvec2(Y, nbr_classes):
+    pos_samples = np.where(Y>=0)[0].ravel()
+    indvec = np.zeros((Y.shape[0], nbr_classes))
+    indvec[(pos_samples, Y.ravel().astype('int32')[pos_samples])] = 1
+    return indvec
+
 def label2indvec(Y, nbr_classes=None):
   if nbr_classes == None:
     nbr_classes = np.unique(Y).shape[0]

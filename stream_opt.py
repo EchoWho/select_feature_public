@@ -1,5 +1,3 @@
-import opt2
-import dataset2
 import numpy as np
 import scipy
 
@@ -96,7 +94,10 @@ class StreamOptProblem(object):
 
 
 class StreamProblemData(object): 
-    def __init__(self, data_dir, vec_data_fn, costs, groups, l2_lam=1e-6, y_val_func = lambda x:x, call_init=True, compute_XTY=False, load_fn=None):
+    def __init__(self, loader, data_dir, vec_data_fn, costs, groups, l2_lam=1e-6, y_val_func = lambda x:x, call_init=True, compute_XTY=False, load_fn=None):
+
+        self.loader = loader
+
         # compute class C, and over all C. 
         self.data_dir = data_dir
         self.y_val_func = y_val_func
@@ -136,7 +137,7 @@ class StreamProblemData(object):
                 self.m_Y = np.zeros((self.n_responses), dtype=np.float64)
 
             for fn_i, data_fn in enumerate(self.vec_data_fn):
-                X_i, Y_i = dataset2.load_data(data_fn, self.y_val_func, data_dir=self.data_dir)
+                X_i, Y_i = self.loader.load_data(data_fn, self.y_val_func, data_dir=self.data_dir, load_for_train=False)
                 self.n_responses = Y_i.shape[1]
                 self.n_X += X_i.shape[0]
                 self.m_X += np.sum(X_i, axis=0)
@@ -173,8 +174,8 @@ class StreamProblemData(object):
     def n_responses(self):
         return self.n_responses
 
-    def load_and_preprocess(self, fn):
-        X, Y = dataset2.load_data(fn, self.y_val_func, data_dir=self.data_dir)
+    def load_and_preprocess(self, fn, load_for_train=False):
+        X, Y = self.loader.load_data(fn, self.y_val_func, self.data_dir, load_for_train)
         X = X - self.m_X
 
         # TODO handle Scale of each X dimension ?
