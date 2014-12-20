@@ -1,5 +1,6 @@
 import numpy as np
-import scipy
+import time
+from scipy.linalg import pinv
 
 #
 # Class Hierarchy:
@@ -22,7 +23,7 @@ def alg_omp(problem):
     n_dim = problem.data.n_dim
 
     mask = np.zeros(n_groups, np.bool)
-    selected_groups = np.zeros(K, np.int)
+    selected_groups = np.zeros(n_groups, np.int)
     best_feats = np.zeros(n_dim, np.int)
     best_feats_end = 0
     last_model=problem.init_model()
@@ -64,7 +65,7 @@ def alg_omp(problem):
 
 
 def omp_select_groups(problem, selected_feats, mask, model):
-    grad_norms = compute_whiten_gradient_norm_unselected(problem.spd, selected_feats, mask, model) 
+    grad_norms = problem.solver.compute_whiten_gradient_norm_unselected(problem.data, selected_feats, mask, model) 
 
     best_ip = 0.0
     best_g = -1
@@ -84,18 +85,18 @@ def omp_select_groups(problem, selected_feats, mask, model):
 
 class StreamOptProblem(object):
     def __init__(self,stream_data, stream_solver):
-        self.spd = stream_data
+        self.data = stream_data
         self.solver = stream_solver
 
-    def opt_and_score(self, selected_feats, model0):
-        return self.solver.opt_and_score(self.spd, selected_feats, model0)
+    def opt_and_score(self, selected_feats, model0=None):
+        return self.solver.opt_and_score(self.data, selected_feats, model0)
 
     def init_model(self):
-        return self.solver.init_model(self.spd.n_responses())
+        return self.solver.init_model(self.data.n_responses)
 
 
 class StreamProblemData(object): 
-    def __init__(self, loader, data_dir, vec_data_fn, costs, groups, l2_lam=1e-6, y_val_func = lambda x:x, call_init=True, compute_XTY=False, load_fn=None):
+    def __init__(self, n_responses, loader, data_dir, vec_data_fn, costs, groups, l2_lam=1e-6, y_val_func = lambda x:x, call_init=True, compute_XTY=False, load_fn=None):
 
         self.loader = loader
 
@@ -110,14 +111,18 @@ class StreamProblemData(object):
         n_dim = groups.shape[0]
         self.n_dim = n_dim
         self.n_X = 0
-        self.m_X = np.zeros((n_dim,), dtype = np.flat64)
+        self.m_X = np.zeros((n_dim,), dtype = np.float64)
         self.XTX = np.zeros((n_dim, n_dim), dtype = np.float64)
+
+        self.n_responses = n_responses
         
         self.n_groups = np.max(self.groups)+1
         self.vec_feats_g = []
-        for g in range(n_groups):
+        for g in range(self.n_groups):
             feats_g = np.nonzero(self.groups==g)[0]
             self.vec_feats_g.append(feats_g)
+
+        self.compute_XTY = compute_XTY
 
         self.has_init = False
         if call_init:
@@ -138,6 +143,7 @@ class StreamProblemData(object):
                 self.m_Y = np.zeros((self.n_responses), dtype=np.float64)
 
             for fn_i, data_fn in enumerate(self.vec_data_fn):
+                print 'Loading file {} : {}'.format(fn_i, data_fn)
                 X_i, Y_i = self.loader.load_data(data_fn, self.y_val_func, data_dir=self.data_dir, load_for_train=False)
                 self.n_responses = Y_i.shape[1]
                 self.n_X += X_i.shape[0]
@@ -148,15 +154,16 @@ class StreamProblemData(object):
                     self.XTY += np.dot(X_i.T, Y_i)
                     self.m_Y += np.sum(Y_i, axis=0)
                 
+            print 'Compute m_X, XTX'
             self.m_X /= self.n_X
             self.XTX /= self.n_X
             if self.compute_XTY:
                 self.m_Y /= self.n_X
                 self.XTY /= self.n_X
-                self.b = self.XTY - self.m_X.T.dot(self.m_Y)
+                self.b = self.XTY - np.outer(self.m_X, self.m_Y)
 
             # TODO name it with time stamp
-            np.savez('feature_stats.npz', m_X=self.m_X, m_Y=self.m_Y, b=self.b, XTX=self.XTX)
+            np.savez('./bradley_results/feature_stats.npz', m_X=self.m_X, m_Y=self.m_Y, b=self.b, XTX=self.XTX)
         
         self.set_l2_lam(self.l2_lam)
         self.has_init = True
@@ -167,13 +174,8 @@ class StreamProblemData(object):
         self.C = self.XTX - np.outer(self.m_X, self.m_X) + np.eye(self.n_dim) * self.l2_lam
         self.group_C_invs = []
         for g, feats_g in enumerate(self.vec_feats_g):
-            self.group_C_invs.append(np.linalg.pinv(self.C[feats_g[:, np.newaxis], feats_g]))
-
-    def n_dim(self):
-        return self.n_dim
-    
-    def n_responses(self):
-        return self.n_responses
+            #print 'Compute group inv {}'.format(g)
+            self.group_C_invs.append(pinv(self.C[feats_g[:, np.newaxis], feats_g]))
 
     def load_and_preprocess(self, fn, load_for_train=False):
         X, Y = self.loader.load_data(fn, self.y_val_func, self.data_dir, load_for_train)
@@ -190,17 +192,18 @@ class StreamProblemData(object):
 
 def opt_stream_glm_explicit(vec_data_fn, spd, potential_func, mean_func, C_inv, selected=None, w0=None, intercept=True):
     if selected is None:
-        selected = np.arange(spd.n_dim())
+        selected = np.arange(spd.n_dim)
 
     w_len = selected.shape[0]
     if intercept:
+        w_len += 1
         C_inv_tmp = np.zeros((w_len, w_len))
         C_inv_tmp[1: , 1:] = C_inv
         C_inv = C_inv_tmp
         C_inv[0,0] = 1
         w_len += 1
 
-    w = np.zeros((w_len, spd.n_responses())) 
+    w = np.zeros((w_len, spd.n_responses)) 
     if w0 is not None:
         w[:w0.shape[0]] = w0
 
@@ -215,6 +218,7 @@ def opt_stream_glm_explicit(vec_data_fn, spd, potential_func, mean_func, C_inv, 
 
         for fn_i, fn in enumerate(vec_data_fn):
             X, Y = spd.load_and_preprocess(fn)
+            X = X[:, selected]
             n_samples += X.shape[0]
             if intercept:
                 dot_Xw = X.dot(w[1:]) + w[1]
@@ -267,7 +271,7 @@ class StreamOptSolverLinear(object):
 
         b = spd.b[selected_feats] 
         C = spd.C[selected_feats[:, np.newaxis], selected_feats]
-        model['w'] = np.linalg.pinv(C).dot(b)
+        model['w'] = pinv(C).dot(b)
 
         score = np.sum((2 * b - C.dot(w))*w - self.l2_lam*w*w )
         return model,score
@@ -290,7 +294,7 @@ class StreamOptSolverLinear(object):
         return model
 
     def compute_whiten_gradient_norm_unselected(self, spd, selected_feats, mask, model):
-        unselected_groups = np.where(not mask)[0]
+        unselected_groups = np.where(~mask)[0]
         unselected_feats = np.hstack([ spd.vec_feats_g[g] for g in unselected_groups ])
 
         
@@ -327,7 +331,7 @@ class StreamOptSolverGLMExplicit(object):
         if model0 is not None:
             w0 = model0['w']
 
-        C_inv = np.linalg.pinv(spd.C[selected_feats[:, np.newaxis], selected_feats])
+        C_inv = pinv(spd.C[selected_feats[:, np.newaxis], selected_feats])
         w, score = opt_stream_glm_explicit(spd.vec_data_fn, spd, self.potential_func, self.mean_func, C_inv, selected_feats, w0=w0, intercept=self.intercept)
 
         model = {}
@@ -351,13 +355,13 @@ class StreamOptSolverGLMExplicit(object):
         return model
 
     def compute_whiten_gradient_norm_unselected(self, spd, selected_feats, mask, model):
-
-        unselected_groups = np.where(not mask)[0]
+        unselected_groups = np.where(~mask)[0]
         unselected_feats = np.hstack([ spd.vec_feats_g[g] for g in unselected_groups ])
 
         intercept = model['intercept']
         w = model['w']
         n_samples = 0
+        w_grad_unselected = np.zeros((w.shape[1], unselected_feats.shape[0]), np.float64)
         for data_fn in spd.vec_data_fn:
             X, Y = spd.load_and_preprocess(data_fn)
             n_samples += X.shape[0]
@@ -369,6 +373,9 @@ class StreamOptSolverGLMExplicit(object):
             # gradient of each sample right before X transpose
             # NxK
             grad_proxy = np.sum((Y - self.mean_func(dot_Xw))[:,np.newaxis,:] * self.gradient_func(dot_Xw), axis=2)
+
+            #print grad_proxy.shape
+            #print X[:,unselected_feats].shape
 
             # apply X transpose and sum up
             # KxD_unselected

@@ -19,17 +19,24 @@ class BradleyLoader(object):
         fin = np.load('{}/{}'.format(data_dir, fn))
         X = np.hstack([fin[feat_key] for feat_key in self.feat_keys])
 
+        #print "Warning loading only the first 100 dim for testing"
+        #X = X[:, :100]
+
         #boxes:
-        # 0    1    2    3    4     5        6       7             8        9 
-        # xmin ymin xmax ymax score image_id max_iou max_iou_class max_base max_base_class 
+        # 0    1    2    3    4     5        6       
+        # xmin ymin xmax ymax score image_id max_iou 
+        # 7             8        9 
+        # max_iou_class max_base max_base_class 
         iou = fin['boxes'][:, 6]
         Y = fin['boxes'][:,7]
         fin.close()
 
         neg_idx = np.where(iou < neg_threshold)
-        Y[neg_idx] = -1
+        Y[neg_idx] = 0
+        pos_idx = np.where(iou >= pos_threshold)
+        Y[pos_idx] = 1
 
-        # select only 
+        # select only pos and neg samples 
         if load_for_train:
             sample_idx = np.where((iou <neg_threshold)|(iou >= pos_threshold))[0]
             X = X[sample_idx]
