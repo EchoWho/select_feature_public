@@ -160,7 +160,7 @@ class StreamProblemData(object):
 
             for fn_i, data_fn in enumerate(self.vec_data_fn):
                 print 'Loading file {} : {}'.format(fn_i, data_fn)
-                X_i, Y_i = self.loader.load_data(data_fn, self.y_val_func, data_dir=self.data_dir, load_for_train=False)
+                X_i, Y_i = self.loader.load_data(data_fn, self.y_val_func, data_dir=self.data_dir, load_for_train=True)
                 self.n_responses = Y_i.shape[1]
                 self.n_X += X_i.shape[0]
                 self.m_X += np.sum(X_i, axis=0)
