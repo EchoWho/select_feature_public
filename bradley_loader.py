@@ -28,17 +28,17 @@ class BradleyLoader(object):
         # 7             8        9 
         # max_iou_class max_base max_base_class 
         iou = fin['boxes'][:, 6]
-        Y = fin['boxes'][:,7]
         fin.close()
 
-        neg_idx = np.where(iou < neg_threshold)
+        neg_idx = np.where(iou < neg_threshold)[0]
+        pos_idx = np.where(iou >= pos_threshold)[0]
+        Y = np.ones((X.shape[0], 1)) * 0.5
         Y[neg_idx] = 0
-        pos_idx = np.where(iou >= pos_threshold)
         Y[pos_idx] = 1
 
         # select only pos and neg samples 
         if load_for_train:
-            sample_idx = np.where((iou <neg_threshold)|(iou >= pos_threshold))[0]
+            sample_idx = np.hstack([neg_idx, pos_idx])
             X = X[sample_idx]
             Y = Y[sample_idx]
 
