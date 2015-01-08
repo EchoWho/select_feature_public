@@ -1,4 +1,28 @@
 import numpy as np
+from scipy.linalg import pinv,inv
+
+
+# input matrix: [ C, V; U, A]
+# use woodbury matrix inversion lemma to invert the input matrix
+# return the final inverse
+def woodbury_inv(A, U, V, C_inv):
+    C_dim = C_inv.shape[0]
+    A_dim = A.shape[0]
+    if C_dim == 0:
+        return pinv(A)
+    
+    full_inv = np.zeros((C_dim+A_dim, C_dim+A_dim), dtype=np.float64) 
+    # return format [ H, -G; -F, E ]
+    U_dot_C_inv = U.dot(C_inv)
+    C_inv_dot_V = C_inv.dot(V)
+    E = inv(A - U_dot_C_inv.dot(V))
+    F = E.dot(U_dot_C_inv)
+    full_inv[0:C_dim, 0:C_dim] = C_inv_dot_V.dot(F) + C_inv  #H
+    full_inv[0:C_dim, C_dim:] = -C_inv_dot_V.dot(E) #-G
+    full_inv[C_dim:, 0:C_dim] = -F
+    full_inv[C_dim:, C_dim:] = E
+    return full_inv
+
 
 def label2indvec2(Y, nbr_classes):
     pos_samples = np.where(Y>=0)[0].ravel()

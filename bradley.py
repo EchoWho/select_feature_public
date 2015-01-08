@@ -43,5 +43,5 @@ solver = stream_opt.StreamOptSolverLinear(l2_lam=l2_lam, intercept=True)
 
 problem = stream_opt.StreamOptProblem(spd, solver)
 
-result = stream_opt.alg_omp(problem, save_steps=True, step_fn_prefix='bradley_results/step_result')
+result = stream_opt.alg_omp(problem, save_steps=True, step_fn_prefix='bradley_results/step_result_woodbury')
 np.savez('bradley_results/omp_results.npz', result=result)
