@@ -4,6 +4,7 @@ import os.path
 import time
 from scipy.linalg import pinv,inv
 from opt_util import woodbury_inv
+from copy import deepcopy
 
 #
 # Class Hierarchy:
@@ -22,6 +23,7 @@ from opt_util import woodbury_inv
 ##########################
 
 def alg_omp(problem, save_steps=False, step_fn_prefix='step_result', test_all_feats=False):
+    problem.init_cost_manager()
     n_groups = problem.data.n_groups
     n_dim = problem.data.n_dim
 
@@ -61,12 +63,14 @@ def alg_omp(problem, save_steps=False, step_fn_prefix='step_result', test_all_fe
                                                                        last_sel=best_feats[:last_bfe], new_sel=feats_g) 
         # shouldn't have drop in performance;
         if score < best_score:
-            last_C_inv = inv(problem.data.C[best_feats[:last_bfe, np.newaxis], best_feats[:last_bfe]])
-            last_model, score, last_C_inv = problem.opt_and_score_woodbury(best_feats[:best_feats_end], last_C_inv=last_C_inv, 
-                                                                           last_sel=best_feats[:last_bfe], new_sel=feats_g) 
+            last_C_inv = inv(problem.data.C[best_feats[:best_feats_end, np.newaxis], best_feats[:best_feats_end]])
+            last_model, score = problem.opt_and_score(best_feats[:best_feats_end], C_inv = last_C_inv)
         best_score = score
         
-        c = np.sum(problem.data.costs[best_groups])
+        #c = np.sum(problem.data.costs[best_groups])
+        problem.costs.choose(g)
+        c = problem.costs.total_cost()
+
         timestamp = time.time() - t0
         sequence.append((best_score, c, g, best_feats[:best_feats_end], 
                          best_groups, last_model, timestamp))
@@ -81,13 +85,10 @@ def alg_omp(problem, save_steps=False, step_fn_prefix='step_result', test_all_fe
     if test_all_feats:
         print "compute score will all features"
         last_model, best_score = problem.opt_and_score(np.arange(n_dim))
-        c = np.sum(problem.data.costs)
+        c = problem.costs.total_possible_cost()
         timestamp = time.time() - t0
         sequence.append((best_score, c, -1, np.arange(n_dim), 
                          np.arange(n_groups), last_model, timestamp))
-
-
-
 
     return np.asarray(sequence, dtype=[('score', np.float), ('cost', np.float), ('group', np.int),
                       ('selected', object), ('selected_groups', object),
@@ -101,7 +102,7 @@ def omp_select_groups(problem, selected_feats, mask, model):
     best_ip = -np.inf
     best_g = -1
     for _,g in enumerate(grad_norms):
-        ip = grad_norms[g] / problem.data.costs[g]
+        ip = grad_norms[g] / problem.costs.cost_of(g)
 
         if ip > best_ip:
             best_ip = ip
@@ -123,11 +124,14 @@ class StreamOptProblem(object):
     def opt_and_score_woodbury(self, selected_feats, last_C_inv, last_sel, new_sel, model0=None):
         return self.solver.opt_and_score_woodbury(self.data, selected_feats, last_C_inv, last_sel, new_sel, model0)
 
-    def opt_and_score(self, selected_feats, model0=None):
-        return self.solver.opt_and_score(self.data, selected_feats, model0)
+    def opt_and_score(self, selected_feats, model0=None, C_inv=None):
+        return self.solver.opt_and_score(self.data, selected_feats, model0, C_inv)
 
     def init_model(self):
         return self.solver.init_model(self.data.n_responses)
+
+    def init_cost_manager(self):
+        self.costs = deepcopy(self.data.costs)
 
 
 class StreamProblemData(object): 
@@ -334,7 +338,7 @@ class StreamOptSolverLinear(object):
         score = np.sum((2 * b - C.dot(w))*w - self.l2_lam*w*w )
         return model, score, C_inv
 
-    def opt_and_score(self, spd, selected_feats, model0=None):
+    def opt_and_score(self, spd, selected_feats, model0=None, C_inv=None):
         model = {}
         model['intercept'] = self.intercept
         if self.intercept:
@@ -342,7 +346,10 @@ class StreamOptSolverLinear(object):
 
         b = spd.b[selected_feats] 
         C = spd.C[selected_feats[:, np.newaxis], selected_feats]
-        w = inv(C).dot(b)
+        if C_inv is None:
+            w = inv(C).dot(b)
+        else:
+            w = C_inv.dot(b)
         model['w'] = w
 
         score = np.sum((2 * b - C.dot(w))*w - self.l2_lam*w*w )
@@ -402,12 +409,13 @@ class StreamOptSolverGLMExplicit(object):
         self.l2_lam = l2_lam
         self.intercept = intercept
 
-    def opt_and_score(self, spd, selected_feats, model0=None):
+    def opt_and_score(self, spd, selected_feats, model0=None, C_inv=None):
         w0 = None
         if model0 is not None:
             w0 = model0['w']
 
-        C_inv = inv(spd.C[selected_feats[:, np.newaxis], selected_feats])
+        if C_inv is None:
+            C_inv = inv(spd.C[selected_feats[:, np.newaxis], selected_feats])
         w, score = opt_stream_glm_explicit(spd.vec_data_fn, spd, self.potential_func, self.mean_func, C_inv, selected_feats, w0=w0, intercept=self.intercept)
 
         model = {}

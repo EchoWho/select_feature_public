@@ -3,6 +3,7 @@ import opt_util
 import opt2
 import numpy as np
 from bradley_loader import BradleyLoader
+from costs_dag import CostManager 
 
 loader = BradleyLoader()
 
@@ -19,7 +20,13 @@ l2_lam = 1e-4
 
 # Full feature
 group_sizes = np.hstack([np.ones(100,int) * 100, [3840, 4096, 1000]])
-costs = np.hstack([ np.ones(100) * 1.7487390041351318 / 100, [0.12286496162414551, 1.1586189270019531, 1.15]])
+
+cost_list = np.hstack([ np.ones(100) * 1.7487390041351318 / 100, [0.12286496162414551, 1.1586189270019531, 1.15]])
+costs = CostManager(cost_list, dep_list=None, feat_map = lambda x:x) 
+
+#cost_list = np.hstack([ np.ones(100) * 1.7487390041351318 / 100, [0.12286496162414551, 0.05, 1.15]])
+#costs = CostManager(cost_list, dep_list={101:[102]}, feat_map = lambda x:x) 
+
 groups = np.hstack([ np.ones(gs,int) *g  for g, gs in enumerate(group_sizes) ])
 
 # toy 
