@@ -106,7 +106,7 @@ def omp_select_groups(problem, selected_feats, mask, model):
         if cost_g != 0:
             ip = grad_norms[g] / cost_g
         else:
-            ip = np.inf
+            best_g = g
             break
 
         if ip > best_ip:
