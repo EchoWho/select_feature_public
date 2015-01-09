@@ -31,7 +31,7 @@ spd = stream_opt.StreamProblemData(n_responses, loader, data_dir,
         vec_data_fn, costs, groups, l2_lam=l2_lam, 
         y_val_func = lambda x:x, 
         call_init=True, compute_XTY=True, 
-        load_stats=True, load_dir='./bradley_results') 
+        load_stats=False, load_dir='./bradley_results_ltarget') 
 
 
 solver = stream_opt.StreamOptSolverLinear(l2_lam=l2_lam, intercept=True)
@@ -43,5 +43,5 @@ solver = stream_opt.StreamOptSolverLinear(l2_lam=l2_lam, intercept=True)
 
 problem = stream_opt.StreamOptProblem(spd, solver)
 
-result = stream_opt.alg_omp(problem, save_steps=True, step_fn_prefix='bradley_results/step_result_woodbury')
-np.savez('bradley_results/omp_results.npz', result=result)
+result = stream_opt.alg_omp(problem, save_steps=True, step_fn_prefix='bradley_results_ltarget/step_result_woodbury')
+np.savez('bradley_results_ltarget/omp_results.npz', result=result)

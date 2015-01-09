@@ -30,11 +30,22 @@ class BradleyLoader(object):
         iou = fin['boxes'][:, 6]
         fin.close()
 
-        neg_idx = np.where(iou < neg_threshold)[0]
-        pos_idx = np.where(iou >= pos_threshold)[0]
-        Y = np.ones((X.shape[0], 1)) * 0.5
+        # 0 : iou < 0.3
+        # 1 : iou >=0.5 
+        # 0.5 : iou in between
+        #neg_idx = np.where(iou < neg_threshold)[0]
+        #pos_idx = np.where(iou >= pos_threshold)[0]
+        #Y = np.ones((X.shape[0], 1)) * 0.5
+        #Y[neg_idx] = 0
+        #Y[pos_idx] = 1
+
+        Y = iou * 2.5 - 0.75
+        Y = Y[:, np.newaxis]
+        neg_idx = np.where(Y <0)[0]
+        pos_idx = np.where(Y >=1)[0]
         Y[neg_idx] = 0
         Y[pos_idx] = 1
+        load_for_train = False
 
         # select only pos and neg samples 
         if load_for_train:
