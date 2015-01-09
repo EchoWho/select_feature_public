@@ -102,7 +102,12 @@ def omp_select_groups(problem, selected_feats, mask, model):
     best_ip = -np.inf
     best_g = -1
     for _,g in enumerate(grad_norms):
-        ip = grad_norms[g] / problem.costs.cost_of(g)
+        cost_g = problem.costs.cost_of(g)
+        if cost_g != 0:
+            ip = grad_norms[g] / cost_g
+        else:
+            ip = np.inf
+            break
 
         if ip > best_ip:
             best_ip = ip

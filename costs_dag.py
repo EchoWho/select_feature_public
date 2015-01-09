@@ -19,13 +19,15 @@ class CostsManager(object):
 
     # feat  index of the feature we choose
     def choose(self, feat):
-        feat = self.feat_map[feat]
+        feat = self.feat_map(feat)
         for g in self.dep_list[feat]:
             self.has_computed[g] = True
         self.has_computed[feat] = True
 
     def cost_of(self, feat):
-        feat = self.feat_map[feat]
+        feat = self.feat_map(feat)
+        if self.has_computed[feat]:
+            return 0
         cost = self.cost_list[feat]
         for g in self.dep_list[feat]:
             if not self.has_computed[g]:
