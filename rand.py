@@ -5,6 +5,7 @@ import opt2
 import numpy as np
 from bradley_loader import BradleyLoader
 from generic_loader import GenericLoader
+from costs_dag import CostsManager 
 
 loader = GenericLoader()
 
@@ -17,11 +18,12 @@ fin.close()
 # vec_data_fn = vec_data_fn[:2]
 
 n_responses = 1
-l2_lam = 0
+l2_lam = 1e-6
 
 # Full feature
 groups = np.arange(100, dtype=int)
-costs = np.random.uniform(0.5,1.5,100)
+cost_list = np.random.uniform(0.5,1.5,100)
+costs = CostsManager(cost_list)
 
 spd = stream_opt.StreamProblemData(n_responses, loader, data_dir, 
         vec_data_fn, costs, groups, l2_lam=l2_lam, 

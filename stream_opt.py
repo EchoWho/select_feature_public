@@ -127,7 +127,14 @@ class StreamOptProblem(object):
         self.solver = stream_solver
 
     def opt_and_score_woodbury(self, selected_feats, last_C_inv, last_sel, new_sel, model0=None):
-        return self.solver.opt_and_score_woodbury(self.data, selected_feats, last_C_inv, last_sel, new_sel, model0)
+        C = self.data.C[selected_feats[:, np.newaxis], selected_feats]
+        U = self.data.C[new_sel[:,np.newaxis],last_sel]
+        C_inv = woodbury_inv(A=self.data.C[new_sel[:,np.newaxis], new_sel], 
+                             U=U,
+                             V=U.T,
+                             C_inv=last_C_inv)
+        model, score = self.solver.opt_and_score(self.data, selected_feats, model0, C_inv)
+        return model, score, C_inv
 
     def opt_and_score(self, selected_feats, model0=None, C_inv=None):
         return self.solver.opt_and_score(self.data, selected_feats, model0, C_inv)
@@ -208,8 +215,8 @@ class StreamProblemData(object):
                 
             print 'Compute m_X, XTX'
             self.m_X /= self.n_X
-            self.XTX /= self.n_X
-            self.YTY /= self.n_X
+            self.XTX = (self.XTX.T / 2.0 + self.XTX / 2.0) / self.n_X
+            self.YTY = (self.YTY.T / 2.0 + self.YTY / 2.0) / self.n_X
             if self.compute_XTY:
                 self.m_Y /= self.n_X
                 self.XTY /= self.n_X
@@ -223,8 +230,8 @@ class StreamProblemData(object):
             self.C = fin['C']
             self.C = (self.C + self.C.T) / 2.0
             self.group_C_invs = fin['group_C_invs']
-            for g, g_C_inv in enumerate(self.group_C_invs):
-                self.group_C_invs[g] = (g_C_inv + g_C_inv.T) /2.0
+            #for g, g_C_inv in enumerate(self.group_C_invs):
+            #    self.group_C_invs[g] = (g_C_inv + g_C_inv.T) /2.0
             fin.close()
         else:
             self.set_l2_lam(self.l2_lam)
@@ -236,6 +243,7 @@ class StreamProblemData(object):
         self.l2_lam = l2_lam
 
         self.C = self.XTX - np.outer(self.m_X, self.m_X) + np.eye(self.n_dim) * self.l2_lam
+        self.C = self.C.T /2.0 + self.C /2.0
         self.group_C_invs = []
         for g, feats_g in enumerate(self.vec_feats_g):
             print 'Compute group inv {} of dim {}'.format(g, feats_g.shape[0])
@@ -273,6 +281,7 @@ def opt_stream_glm_explicit(vec_data_fn, spd, potential_func, mean_func, C_inv, 
         objective = 0
         delta_w = np.zeros_like(w) 
         n_samples = 0 
+        avg_res = 0
 
         for fn_i, fn in enumerate(vec_data_fn):
             X, Y = spd.load_and_preprocess(fn, load_for_train=True)
@@ -286,14 +295,24 @@ def opt_stream_glm_explicit(vec_data_fn, spd, potential_func, mean_func, C_inv, 
                 delta_w[0] += np.sum(res, axis=0)
             else:
                 dot_Xw = X.dot(w)
-                delta_w += C_inv.dot(X.T.dot(mean_func(dot_Xw) - Y)) / L_lipschitz
+                res = mean_func(dot_Xw) - Y
+                delta_w += C_inv.dot(X.T.dot()) / L_lipschitz
             objective += np.sum(potential_func(dot_Xw)) - np.sum(Y * dot_Xw)
+            avg_res += np.sum(res, axis=0)
+
+        #pdb.set_trace()
 
         objective /= n_samples
-        if intercept:
-            objective += spd.l2_lam * np.sum(w[1:] * w[1:]) * 0.5
-        else:
-            objective += spd.l2_lam * np.sum(w*w) * 0.5
+        avg_res /= n_samples
+        #if intercept:
+        #    objective += spd.l2_lam * np.sum(w[1:] * w[1:]) * 0.5
+        #else:
+        #    objective += spd.l2_lam * np.sum(w*w) * 0.5
+        objective += spd.l2_lam * np.sum(w*w) * 0.5
+
+        #print "iter {}, objective {}, residual {}".format(nbr_iter, objective, avg_res)
+        if objective == np.inf:
+            pdb.set_trace()
 
         if nbr_iter > 0:
             conv_num = abs(last_objective - objective) / np.abs(last_objective)
@@ -302,7 +321,7 @@ def opt_stream_glm_explicit(vec_data_fn, spd, potential_func, mean_func, C_inv, 
                 break
 
             if last_objective < objective:
-                print "iteration: {}. Step size was too large. Shrinking!!!".format(nbr_iter)
+                print "iteration: {}. Shrinking!!! objective {}, step_size {}".format(nbr_iter, objective, np.linalg.norm(last_delta_w))
                 #TODO fix this if this happens. Backtrack for now.
                 last_delta_w *= beta
                 w = last_w - last_delta_w
@@ -314,6 +333,7 @@ def opt_stream_glm_explicit(vec_data_fn, spd, potential_func, mean_func, C_inv, 
         last_delta_w = spd.l2_lam * w + delta_w
         last_w = w
         w -= last_delta_w 
+        #print "delta_w_size {}, grad_size {}".format(np.linalg.norm(delta_w), np.linalg.norm(last_delta_w))
         
         nbr_iter += 1
 
@@ -381,7 +401,6 @@ class StreamOptSolverLinear(object):
         unselected_groups = np.where(~mask)[0]
         unselected_feats = np.hstack([ spd.vec_feats_g[g] for g in unselected_groups ])
 
-        
         b = spd.b[unselected_feats]  # D_unsel x K
         C = spd.C[unselected_feats[:, np.newaxis], selected_feats] #D_unsel x D_sel
 

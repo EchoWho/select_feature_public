@@ -15,15 +15,17 @@ def logistic_mean_func(dot_Xw):
   if dot_Xw.shape[1] == 1:
     exp_Xw = np.exp(-dot_Xw)
     return 1.0 / (1.0 + exp_Xw)
-  exp_Xw = np.exp(dot_Xw)
-  normalizer = np.sum(exp_Xw, axis=1)[:, np.newaxis]
+  max_dot_Xw = np.max(dot_Xw, axis=1)[:,np.newaxis]
+  exp_Xw = np.exp(dot_Xw - max_dot_Xw)
+  normalizer = np.sum(exp_Xw, axis=1)[:,np.newaxis]
   return exp_Xw / normalizer
 
 def logistic_gradient(dot_Xw):
   if dot_Xw.shape[1] == 1:
     exp_Xw = np.exp(-dot_Xw)
     return (exp_Xw / (1.0 + exp_Xw)**2)[:, np.newaxis, :]
-  exp_Xw = np.exp(dot_Xw - np.min(dot_Xw))
+  max_dot_Xw = np.max(dot_Xw, axis=1)[:,np.newaxis]
+  exp_Xw = np.exp(dot_Xw - max_dot_Xw)
   Z = np.sum(exp_Xw, axis=1)[:, np.newaxis]
   exp_Xw /= Z
   N = dot_Xw.shape[0]
@@ -33,8 +35,10 @@ def logistic_gradient(dot_Xw):
 
 def logistic_potential(dot_Xw):
   if dot_Xw.shape[1] == 1:
-    return np.log(1.0 + np.exp(dot_Xw))
-  return np.log(np.sum(np.exp(dot_Xw), axis=1)[:, np.newaxis])
+    return np.log(1.0 + np.exp(-dot_Xw)) + dot_Xw
+  max_dot_Xw = np.max(dot_Xw, axis=1)[:,np.newaxis]
+  exp_Xw = np.exp(dot_Xw - max_dot_Xw)
+  return np.log(np.sum(exp_Xw, axis=1)[:, np.newaxis]) + max_dot_Xw
 
 def logistic_lipschitz():
   return 1
