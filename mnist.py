@@ -31,9 +31,6 @@ def doit():
   params['glm_max_iter'] = 5
   params['glm_power'] = 5
 
-  #d_order = np.load('mnist_ordering.npz')
-  #order = d_order['order']
-
   fitted_model = opt2.regression_fit(X,Y, params, multi_classification=True)
 
   print "Finished Training"

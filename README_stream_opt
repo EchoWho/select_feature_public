@@ -1,0 +1,30 @@
+This is README for stream_opt.py and its related files. 
+
+stream_opt.py performs OMP(orthogonal matchin pursuit) on large feature sets to sequence features for linear regression.
+
+Please use rand.py as an example file:
+
+========
+A. Data Loading
+
+1. <data_dir> contains the input files, which must be small enough to be loaded into memory individually. 
+2. Each data file must be loaded with a loader class, which read the file into a pair of <X,Y>. 
+3. generic_loader.py provides utility to load samples from npz files that contain "X" and "Y"; one can implement their own custom loader. 
+4. stream_opt.StreamProblemData is a class that handles data loading and feature statistics computation. (XTX, XTY, and etc.)
+    Your data must be loaded and processed with this. 
+
+========
+B. stream_opt.StreamOptSolverLinear and stream_opt.StreamOptSolverGLMExplicit 
+
+1. These are linear regression solver and explicit GLM solver that 
+requires StreamProblemData to function.
+
+========
+C. stream_opt.StreamOptProblem 
+
+The class that organizes the Data and Solver and is used by the main algorithm 
+
+========
+D. stream_opt.alg_omp
+
+Main algorithm - take a Problem object and perform OMP to sequence the feature groups of the data.

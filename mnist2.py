@@ -12,7 +12,7 @@ def doit():
   fn_test = 'test724.txt' #sys.argv[2] #e.g. 
   params={}
   params['l2_lam'] = 1e-5
-  params['regression_methods'] = ['logistic']
+  params['regression_methods'] = ['logistic'] # linear / glm
   params['opt_methods'] = ['OMP']
   #params['glm_power'] = 5
   #params['glm_max_iter'] = 10
