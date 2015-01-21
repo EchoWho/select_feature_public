@@ -12,13 +12,14 @@ fin = open('./bradley_data/train_data_fn.txt')
 vec_data_fn = [ l.strip() for l in fin ]
 fin.close()
 
-# uncomment to use all data fn
-# vec_data_fn = vec_data_fn[:2]
+# comment out the following to use all data fn
+#vec_data_fn = vec_data_fn[:100]
 
 n_responses = 1
 l2_lam = 1e-4
 
 # Full feature
+# 100 100-dim ICF, 3840 ACF, 4096 CNN_feat, 1000 CNN_prediction
 group_sizes = np.hstack([np.ones(100,int) * 100, [3840, 4096, 1000]])
 
 # no dep
@@ -26,8 +27,17 @@ group_sizes = np.hstack([np.ones(100,int) * 100, [3840, 4096, 1000]])
 #costs = CostsManager(cost_list, dep_list=None, feat_map = lambda x:x) 
 
 # some dependency
-cost_list = np.hstack([ np.ones(100) * 1.7487390041351318 / 100, [0.12286496162414551, 0.05, 1.12]])
-costs = CostsManager(cost_list, dep_list={102:[101]}, feat_map = lambda x:x) 
+#channel features: 0.3 ms
+#ACF: 0.36ms + channel features
+#ICF (100 feature group): 1ms + channel features
+#CNN_fv6 (4096D): 5ms
+#CNN_predictions (1000D): 1ms + CNN_fv6
+cost_list = np.hstack([ np.ones(100) * 1, [0.36, 5, 1, 0.3]])
+dep_list = {100:[103], 102:[101]}
+for g in range(100):
+    dep_list[g] = [103]
+
+costs = CostsManager(cost_list, dep_list=dep_list, feat_map = lambda x:x) 
 
 groups = np.hstack([ np.ones(gs,int) *g  for g, gs in enumerate(group_sizes) ])
 
@@ -40,7 +50,7 @@ spd = stream_opt.StreamProblemData(n_responses, loader, data_dir,
         vec_data_fn, costs, groups, l2_lam=l2_lam, 
         y_val_func = lambda x:x, 
         call_init=True, compute_XTY=True, 
-        load_stats=True, load_dir='./bradley_results_ltarget') 
+        load_stats=False, load_dir='./bradley_results_ltarget') 
 
 
 solver = stream_opt.StreamOptSolverLinear(l2_lam=l2_lam, intercept=True)

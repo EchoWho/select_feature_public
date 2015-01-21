@@ -13,7 +13,7 @@ class BradleyLoader(object):
                  'icf_warped_seconds',\
                  'warped_cnn_predictions']
 
-        self.feat_keys = ['icf_warped', 'acf_warped', 'warped_cnn_predictions', 'warped_cnn_fv6'] 
+        self.feat_keys = ['icf_warped', 'acf_warped', 'warped_cnn_fv6', 'warped_cnn_predictions'] 
 
     def load_data(self, fn, y_val_func=lambda x:x, data_dir='.', load_for_train=False, neg_threshold=0.3, pos_threshold=0.5):
         fin = np.load('{}/{}'.format(data_dir, fn))

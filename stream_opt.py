@@ -63,9 +63,11 @@ def alg_omp(problem, save_steps=False, step_fn_prefix='step_result', test_all_fe
                                                                        last_sel=best_feats[:last_bfe], new_sel=feats_g) 
         # shouldn't have drop in performance;
         if score < best_score:
+            print "woodbury failure .... recompute model"
             last_C_inv = inv(problem.data.C[best_feats[:best_feats_end, np.newaxis], best_feats[:best_feats_end]])
             last_model, score = problem.opt_and_score(best_feats[:best_feats_end], C_inv = last_C_inv)
         best_score = score
+        print "best_score {}".format(best_score)
         
         #c = np.sum(problem.data.costs[best_groups])
         problem.costs.choose(g)
@@ -163,9 +165,11 @@ class StreamProblemData(object):
         self.n_dim = n_dim
         self.n_X = 0
         self.m_X = np.zeros((n_dim,), dtype = np.float64)
+        self.std_X = np.zeros((n_dim,), dtype=np.float64)
         self.XTX = np.zeros((n_dim, n_dim), dtype = np.float64)
 
         self.n_responses = n_responses
+        self.m_Y = np.zeros((self.n_responses), dtype=np.float64)
         self.YTY = np.zeros((n_responses, n_responses), dtype=np.float64)
         
         self.n_groups = np.max(self.groups)+1
@@ -181,6 +185,7 @@ class StreamProblemData(object):
             self.init(load_stats, load_dir)
 
     def init(self, load_stats=False, load_dir=None):
+        means_fn = '{}/feature_means.npz'.format(load_dir)
         stats_fn = '{}/feature_stats.npz'.format(load_dir)
         group_C_invs_fn = '{}/group_C_invs.npz'.format(load_dir)
 
@@ -188,9 +193,12 @@ class StreamProblemData(object):
             print "load data statistics from {} ...".format(stats_fn)
             fin = np.load(stats_fn)
             self.XTX = fin['XTX']
+            self.YTY = fin['YTY']
             self.m_X = fin['m_X']
+            self.std_X = fin['std_X']
+            self.std_X_inv = 1.0 / self.std_X
+            self.m_Y = fin['m_Y']
             if self.compute_XTY:
-                self.m_Y = fin['m_Y']
                 self.b = fin['b']
             fin.close()
             print "done"
@@ -198,29 +206,58 @@ class StreamProblemData(object):
         else:
             if self.compute_XTY:
                 self.XTY = np.zeros((self.n_dim, self.n_responses), dtype=np.float64)
-                self.m_Y = np.zeros((self.n_responses), dtype=np.float64)
 
+            load_means = False
+            if load_means:
+                fin = np.load(means_fn)
+                self.n_X = fin['n_X']
+                self.m_X = fin['m_X']
+                self.std_X = fin['std_X']
+                self.std_X_inv = 1.0 / self.std_X
+                self.m_Y = fin['m_Y']
+                fin.close()
+            else:
+                for fn_i, data_fn in enumerate(self.vec_data_fn):
+                    print 'means- Loading file {} : {}'.format(fn_i, data_fn)
+                    X_i, Y_i = self.loader.load_data(data_fn, self.y_val_func, data_dir=self.data_dir, load_for_train=True)
+                    self.n_responses = Y_i.shape[1]
+                    self.n_X += X_i.shape[0]
+                    self.m_X += np.sum(X_i, axis=0)
+                    self.m_Y += np.sum(Y_i, axis=0)
+                    #self.std_X += np.sum(X_i**2,axis=0)
+                self.m_X /= self.n_X
+                self.m_Y /= self.n_X
+                #self.std_X = np.sqrt(self.std_X / self.n_X - self.m_X**2)
+                #self.std_X += self.std_X==0
+                
+                for fn_i, data_fn in enumerate(self.vec_data_fn):
+                    print 'std - Loading file {} : {}'.format(fn_i, data_fn)
+                    X_i, Y_i = self.loader.load_data(data_fn, self.y_val_func, data_dir=self.data_dir, load_for_train=True)
+                    self.std_X += np.sum((X_i - self.m_X)**2, axis=0)
+                self.std_X = np.sqrt(self.std_X / self.n_X)
+                self.std_X += self.std_X == 0
+
+                self.std_X_inv = 1.0 / self.std_X
+                 
+                np.savez(means_fn, n_X=self.n_X, m_X=self.m_X, m_Y=self.m_Y)
+
+            self.n_X = 0
             for fn_i, data_fn in enumerate(self.vec_data_fn):
-                print 'Loading file {} : {}'.format(fn_i, data_fn)
-                X_i, Y_i = self.loader.load_data(data_fn, self.y_val_func, data_dir=self.data_dir, load_for_train=True)
-                self.n_responses = Y_i.shape[1]
+                print 'XTX - Loading file {} : {}'.format(fn_i, data_fn)
+                X_i, Y_i = self.load_and_preprocess(data_fn, load_for_train=True)
                 self.n_X += X_i.shape[0]
-                self.m_X += np.sum(X_i, axis=0)
                 # Overflow Underflow TODO
                 self.XTX += np.dot(X_i.T, X_i)
                 self.YTY += np.dot(Y_i.T, Y_i)
                 if self.compute_XTY:
-                    self.XTY += np.dot(X_i.T, Y_i)
-                    self.m_Y += np.sum(Y_i, axis=0)
+                    self.XTY += np.dot(X_i.T, Y_i - self.m_Y)
                 
             print 'Compute m_X, XTX'
-            self.m_X /= self.n_X
             self.XTX = (self.XTX.T / 2.0 + self.XTX / 2.0) / self.n_X
             self.YTY = (self.YTY.T / 2.0 + self.YTY / 2.0) / self.n_X
             if self.compute_XTY:
-                self.m_Y /= self.n_X
                 self.XTY /= self.n_X
-                self.b = self.XTY - np.outer(self.m_X, self.m_Y)
+                self.b = self.XTY # - np.outer(self.m_X, self.m_Y)
 
             np.savez(stats_fn, m_X=self.m_X, m_Y=self.m_Y, b=self.b, XTX=self.XTX, YTY=self.YTY)
         
@@ -235,14 +272,14 @@ class StreamProblemData(object):
             fin.close()
         else:
             self.set_l2_lam(self.l2_lam)
-            np.savez(group_C_invs_fn, group_C_invs=self.group_C_invs)
+            np.savez(group_C_invs_fn, group_C_invs=self.group_C_invs, C=self.C, l2_lam=self.l2_lam)
         self.has_init = True
 
     def set_l2_lam(self, l2_lam):
         print "Set l2_lam and compute group covariance inverse..."
         self.l2_lam = l2_lam
 
-        self.C = self.XTX - np.outer(self.m_X, self.m_X) + np.eye(self.n_dim) * self.l2_lam
+        self.C = self.XTX + np.eye(self.n_dim) * self.l2_lam
         self.C = self.C.T /2.0 + self.C /2.0
         self.group_C_invs = []
         for g, feats_g in enumerate(self.vec_feats_g):
@@ -252,7 +289,7 @@ class StreamProblemData(object):
 
     def load_and_preprocess(self, fn, load_for_train=False):
         X, Y = self.loader.load_data(fn, self.y_val_func, self.data_dir, load_for_train)
-        X = X - self.m_X
+        X = (X - self.m_X) * self.std_X_inv
 
         # TODO handle Scale of each X dimension ?
         return X, Y

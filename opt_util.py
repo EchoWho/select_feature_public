@@ -9,7 +9,7 @@ def woodbury_inv(A, U, V, C_inv):
     C_dim = C_inv.shape[0]
     A_dim = A.shape[0]
     if C_dim == 0:
-        return pinv(A)
+        return inv(A)
     
     full_inv = np.zeros((C_dim+A_dim, C_dim+A_dim), dtype=np.float64) 
     # return format [ H, -G; -F, E ]
