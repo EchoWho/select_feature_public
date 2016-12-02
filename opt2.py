@@ -620,7 +620,7 @@ class OptSolverLogistic(object):
       dataC = data.c_chunk_C[chunk_i]
       data_range = data.c_chunks[chunk_i, :]
 
-    C_inv = scipy.linalg.inv, dataC[selected_feats[:,np.newaxis], selected_feats]
+    C_inv = scipy.linalg.inv(dataC[selected_feats[:,np.newaxis], selected_feats])
     return opt_glm_explicit(data.X[data_range[:, np.newaxis], selected_feats], data.Y[data_range, :], 
                             logistic_potential, logistic_mean_func,  
                             w0=model0, 
