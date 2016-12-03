@@ -57,15 +57,26 @@ def alg_omp(problem, save_steps=False, step_fn_prefix='step_result', test_all_fe
         last_bfe = best_feats_end
         best_feats_end = sel_feats_end
 
-        # warm start vs. cold start
-        #last_model, best_score = problem.opt_and_score(best_feats[:best_feats_end], last_model) 
-        last_model, score, last_C_inv = problem.opt_and_score_woodbury(best_feats[:best_feats_end], last_C_inv=last_C_inv, 
-                                                                       last_sel=best_feats[:last_bfe], new_sel=feats_g) 
-        # shouldn't have drop in performance;
-        if score < best_score:
-            print "woodbury failure .... recompute model"
-            last_C_inv = inv(problem.data.C[best_feats[:best_feats_end, np.newaxis], best_feats[:best_feats_end]])
-            last_model, score = problem.opt_and_score(best_feats[:best_feats_end], C_inv = last_C_inv)
+        fix_previous_weights=False
+        if not fix_previous_weights:
+            # warmstart
+            #last_model, best_score = problem.opt_and_score(best_feats[:best_feats_end], last_model) 
+
+            # Woodbury. Remember that the performancemay decrease due to bad inverses. so we need to check and recompute inverse
+            last_model, score, last_C_inv = problem.opt_and_score_woodbury(best_feats[:best_feats_end], last_C_inv=last_C_inv, 
+                                                                          last_sel=best_feats[:last_bfe], new_sel=feats_g) 
+            # shouldn't have drop in performance;
+            if score < best_score:
+                print "woodbury failure .... recompute model"
+                last_C_inv = inv(problem.data.C[best_feats[:best_feats_end, np.newaxis], best_feats[:best_feats_end]])
+                last_model, score = problem.opt_and_score(best_feats[:best_feats_end], C_inv = last_C_inv)
+        
+        else: 
+            # Previous weights are kept fixed
+            if k==0:
+                last_model=None
+            last_model, score = problem.opt_and_score_additive(last_sel=best_feats[:last_bfe],new_sel=feats_g,model0=last_model)
+
         best_score = score
         print "best_score {}".format(best_score)
         
@@ -127,6 +138,9 @@ class StreamOptProblem(object):
     def __init__(self,stream_data, stream_solver):
         self.data = stream_data
         self.solver = stream_solver
+
+    def opt_and_score_additive(self, last_sel, new_sel, model0):
+        return self.solver.opt_and_score_additive(self.data, last_sel, new_sel, model0) 
 
     def opt_and_score_woodbury(self, selected_feats, last_C_inv, last_sel, new_sel, model0=None):
         C = self.data.C[selected_feats[:, np.newaxis], selected_feats]
@@ -224,11 +238,8 @@ class StreamProblemData(object):
                     self.n_X += X_i.shape[0]
                     self.m_X += np.sum(X_i, axis=0)
                     self.m_Y += np.sum(Y_i, axis=0)
-                    #self.std_X += np.sum(X_i**2,axis=0)
                 self.m_X /= self.n_X
                 self.m_Y /= self.n_X
-                #self.std_X = np.sqrt(self.std_X / self.n_X - self.m_X**2)
-                #self.std_X += self.std_X==0
                 
                 for fn_i, data_fn in enumerate(self.vec_data_fn):
                     print 'std - Loading file {} : {}'.format(fn_i, data_fn)
@@ -239,7 +250,7 @@ class StreamProblemData(object):
 
                 self.std_X_inv = 1.0 / self.std_X
                  
-                np.savez(means_fn, n_X=self.n_X, m_X=self.m_X, m_Y=self.m_Y)
+                np.savez(means_fn, n_X=self.n_X, m_X=self.m_X, m_Y=self.m_Y, std_X=self.std_X)
 
             self.n_X = 0
             for fn_i, data_fn in enumerate(self.vec_data_fn):
@@ -259,7 +270,7 @@ class StreamProblemData(object):
                 self.XTY /= self.n_X
                 self.b = self.XTY # - np.outer(self.m_X, self.m_Y)
 
-            np.savez(stats_fn, m_X=self.m_X, m_Y=self.m_Y, b=self.b, XTX=self.XTX, YTY=self.YTY)
+            np.savez(stats_fn, m_X=self.m_X, m_Y=self.m_Y, std_X=self.std_X, b=self.b, XTX=self.XTX, YTY=self.YTY)
         
         if load_stats and os.path.isfile(group_C_invs_fn):
             fin = np.load(group_C_invs_fn)
@@ -381,6 +392,26 @@ class StreamOptSolverLinear(object):
         self.l2_lam = l2_lam
         self.intercept = intercept
 
+    def opt_and_score_additive(self, spd, last_sel, new_sel, model0=None):
+        model = {}
+        model['intercept'] = self.intercept
+        if self.intercept:
+            model['m_Y'] = spd.m_Y
+
+        b = spd.b[new_sel]
+        if model0 is not None:
+            b -= np.dot(spd.C[new_sel[:,np.newaxis],last_sel], model0['w'])
+        C = spd.C[new_sel[:,np.newaxis],new_sel]
+        w = inv(C).dot(b)
+    
+        if model0 is not None:
+            model['w'] = np.vstack((model0['w'], w))
+        else:
+            model['w'] = w
+
+        score = np.sum((2 * b - C.dot(w))*w - self.l2_lam*w*w )
+        return model, score
+
     def opt_and_score_woodbury(self, spd, selected_feats, last_C_inv, last_sel, new_sel, model0=None):
         model = {}
         model['intercept'] = self.intercept
@@ -424,7 +455,7 @@ class StreamOptSolverLinear(object):
         Y_hat = X.dot(model['w'])
         if model['intercept']:
             Y_hat += model['m_Y'] 
-        return Y_hat
+        return Y_hat, Y
 
     def init_model(self, n_responses):
         model={}
@@ -442,12 +473,13 @@ class StreamOptSolverLinear(object):
         C = spd.C[unselected_feats[:, np.newaxis], selected_feats] #D_unsel x D_sel
 
         w = model['w'] #D_sel x K
-        proxy = (b - C.dot(w)).T # k x D_unsel
+        proxy = (b - C.dot(w)) # k x D_unsel
         
         # You might think that this is necessary but it is NOT!
         # b already took care of setting m_Y =0
         if model['intercept']: 
-            proxy -= model['m_Y'].T
+            proxy -= model['m_Y']
+        proxy = proxy.T
 
         w_grad_norm_whiten = {}
         f = 0 #front
@@ -491,7 +523,7 @@ class StreamOptSolverGLMExplicit(object):
         w = model['w']
         if model['intercept']:
             return self.mean_func(X.dot(w[1:]) + w[0])
-        return self.mean_func(X.dot(w))
+        return self.mean_func(X.dot(w)), Y
     
     def init_model(self, n_responses):
         model = {}
